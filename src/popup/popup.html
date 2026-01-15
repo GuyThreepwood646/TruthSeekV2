@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TruthSeek</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="popup-header">
+      <h1>TruthSeek</h1>
+      <p class="tagline">AI-Powered Fact Verification</p>
+    </header>
+
+    <!-- AI Agents Section -->
+    <section class="agents-section">
+      <h2>AI Agents</h2>
+      <div id="agent-list" class="agent-list">
+        <!-- Empty state -->
+        <div id="empty-state" class="empty-state">
+          <p>No AI agents configured</p>
+          <p class="hint">Add at least one agent to start fact-checking</p>
+        </div>
+        <!-- Agent items will be dynamically added here -->
+      </div>
+      <button id="add-agent-btn" class="btn btn-secondary">
+        <span class="icon">+</span> Add AI Agent
+      </button>
+    </section>
+
+    <!-- Controls Section -->
+    <section class="controls-section">
+      <button id="run-btn" class="btn btn-primary" disabled>
+        <span class="icon">▶</span> Run Fact Check
+      </button>
+      <button id="cancel-btn" class="btn btn-danger" style="display: none;">
+        <span class="icon">✕</span> Cancel
+      </button>
+      <div id="status-message" class="status-message"></div>
+    </section>
+
+    <!-- Donation Section -->
+    <footer class="donation-section">
+      <a href="#" id="donation-link" target="_blank" class="donation-link">
+        Support this project
+      </a>
+      <p class="donation-note">Help keep TruthSeek free and open-source</p>
+    </footer>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,780 @@
+/**
+ * TruthSeek Modal Styles
+ * Styles for fact detail modal component
+ */
+
+/* Modal Overlay */
+.ts-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999999;
+  animation: ts-fadeIn 0.2s ease-out;
+}
+
+.ts-modal-overlay.hidden {
+  display: none;
+}
+
+@keyframes ts-fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Modal Content */
+.ts-modal-content {
+  background: #ffffff;
+  border-radius: 12px;
+  max-width: 700px;
+  max-height: 85vh;
+  width: 90%;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  position: relative;
+  animation: ts-slideUp 0.3s ease-out;
+}
+
+@keyframes ts-slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Close Button */
+.ts-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  color: #999;
+  padding: 4px 8px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.ts-modal-close:hover {
+  color: #333;
+  background: #f0f0f0;
+}
+
+/* Modal Header */
+.ts-modal-header {
+  padding: 24px 24px 16px;
+  border-bottom: 2px solid #e8e8e8;
+}
+
+.ts-modal-header h3 {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.ts-sentence-text {
+  font-style: italic;
+  color: #666;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  background: #f8f8f8;
+  border-radius: 6px;
+  border-left: 3px solid #667eea;
+}
+
+/* Modal Body */
+.ts-modal-body {
+  padding: 20px 24px 24px;
+}
+
+.ts-no-facts {
+  text-align: center;
+  color: #999;
+  padding: 40px 20px;
+  font-size: 15px;
+}
+
+/* Fact Item */
+.ts-fact-item {
+  margin-bottom: 28px;
+  padding-bottom: 28px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.ts-fact-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ts-fact-statement {
+  margin-bottom: 16px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #333;
+}
+
+.ts-fact-statement strong {
+  color: #667eea;
+  font-weight: 600;
+}
+
+/* Fact Header (Verdict + Confidence) */
+.ts-fact-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.ts-fact-header.ts-verdict-true {
+  background: #d4edda;
+  border: 2px solid #28a745;
+}
+
+.ts-fact-header.ts-verdict-false {
+  background: #f8d7da;
+  border: 2px solid #dc3545;
+}
+
+.ts-fact-header.ts-verdict-unverified {
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+}
+
+/* Verdict Badge */
+.ts-verdict-badge {
+  font-weight: 700;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ts-verdict-true .ts-verdict-badge {
+  color: #155724;
+}
+
+.ts-verdict-false .ts-verdict-badge {
+  color: #721c24;
+}
+
+.ts-verdict-unverified .ts-verdict-badge {
+  color: #856404;
+}
+
+/* Confidence Bar */
+.ts-confidence-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  max-width: 250px;
+}
+
+.ts-confidence-bar {
+  flex: 1;
+  height: 20px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ts-confidence-fill {
+  height: 100%;
+  transition: width 0.3s ease-out;
+  border-radius: 10px;
+}
+
+.ts-confidence-fill.ts-confidence-high {
+  background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
+}
+
+.ts-confidence-fill.ts-confidence-medium {
+  background: linear-gradient(90deg, #ffc107 0%, #fd7e14 100%);
+}
+
+.ts-confidence-fill.ts-confidence-low {
+  background: linear-gradient(90deg, #dc3545 0%, #c82333 100%);
+}
+
+.ts-confidence-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+}
+
+/* Reasoning */
+.ts-fact-reasoning {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #667eea;
+}
+
+.ts-fact-reasoning p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #495057;
+}
+
+/* Disagreement Warning */
+.ts-disagreement-warning {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  color: #856404;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ts-reverification-suggestion {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border-left: 3px solid #ff9800;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.ts-reverification-suggestion strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #e65100;
+  font-weight: 600;
+}
+
+.ts-suggested-terms {
+  display: block;
+  margin-top: 6px;
+  font-style: italic;
+  color: #6c757d;
+  font-size: 11px;
+}
+
+/* Knowledge Cutoff Message */
+.ts-cutoff-message {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #d1ecf1;
+  border: 1px solid #17a2b8;
+  border-radius: 6px;
+  color: #0c5460;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Sources Section */
+.ts-sources {
+  margin-top: 20px;
+}
+
+.ts-sources h4 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+
+.ts-no-sources {
+  color: #999;
+  font-size: 13px;
+  font-style: italic;
+  margin: 0;
+}
+
+.ts-sources-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ts-source-item {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #dee2e6;
+  transition: all 0.2s;
+}
+
+.ts-source-item:hover {
+  background: #e9ecef;
+}
+
+.ts-source-item.ts-supporting {
+  border-left-color: #28a745;
+}
+
+.ts-source-item.ts-refuting {
+  border-left-color: #dc3545;
+}
+
+.ts-source-link {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 14px;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+
+.ts-source-link:hover {
+  text-decoration: underline;
+  color: #5568d3;
+}
+
+.ts-tier-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-left: 8px;
+}
+
+.ts-tier-badge.ts-tier-1 {
+  background: #d4edda;
+  color: #155724;
+}
+
+.ts-tier-badge.ts-tier-2 {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.ts-tier-badge.ts-tier-3 {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.ts-tier-badge.ts-tier-4 {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.ts-source-type {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+.ts-source-snippet {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #666;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+/* Agent Details */
+/* Agent Details Section */
+.ts-agent-details {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 2px solid #e8e8e8;
+}
+
+.ts-agent-details h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+
+.ts-agent-details-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Individual Agent Section */
+.ts-agent-section {
+  margin-bottom: 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.ts-agent-section:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Disagreement highlighting */
+.ts-agent-section.ts-agent-disagreement {
+  border-color: #ffc107;
+  background: #fff8e1;
+}
+
+.ts-agent-section.ts-agent-disagreement .ts-agent-summary {
+  background: #fff8e1;
+}
+
+/* Agent Summary (collapsed state) */
+.ts-agent-summary {
+  padding: 14px 16px;
+  background: #f8f9fa;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.2s;
+  user-select: none;
+}
+
+.ts-agent-summary:hover {
+  background: #e9ecef;
+}
+
+.ts-agent-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ts-agent-summary::marker {
+  content: '';
+}
+
+.ts-agent-summary::before {
+  content: '▶';
+  display: inline-block;
+  width: 12px;
+  transition: transform 0.2s;
+  color: #6c757d;
+  font-size: 10px;
+}
+
+.ts-agent-section[open] .ts-agent-summary::before {
+  transform: rotate(90deg);
+}
+
+.ts-agent-section[open] .ts-agent-summary {
+  border-bottom: 1px solid #dee2e6;
+  background: #fff;
+}
+
+/* Agent Summary Elements */
+.ts-agent-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.ts-agent-label {
+  flex: 1;
+  font-weight: 600;
+  color: #333;
+  font-size: 14px;
+}
+
+.ts-agent-verdict-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e9ecef;
+  color: #495057;
+}
+
+.ts-agent-summary.ts-verdict-true .ts-agent-verdict-badge {
+  background: #d4edda;
+  color: #155724;
+}
+
+.ts-agent-summary.ts-verdict-false .ts-agent-verdict-badge {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.ts-agent-summary.ts-verdict-unverified .ts-agent-verdict-badge {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.ts-agent-confidence-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e9ecef;
+  color: #495057;
+}
+
+.ts-agent-confidence-badge.ts-confidence-high {
+  background: #d4edda;
+  color: #155724;
+}
+
+.ts-agent-confidence-badge.ts-confidence-medium {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.ts-agent-confidence-badge.ts-confidence-low {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.ts-disagreement-indicator {
+  font-size: 16px;
+  animation: pulse-warning 2s infinite;
+}
+
+@keyframes pulse-warning {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Agent Content (expanded state) */
+.ts-agent-content {
+  padding: 16px;
+  background: #ffffff;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ts-agent-content > * {
+  margin-bottom: 16px;
+}
+
+.ts-agent-content > *:last-child {
+  margin-bottom: 0;
+}
+
+.ts-agent-content p {
+  margin: 0 0 12px;
+}
+
+.ts-agent-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Agent Error */
+.ts-agent-error {
+  padding: 12px;
+  background: #f8d7da;
+  border: 1px solid #dc3545;
+  border-radius: 6px;
+  color: #721c24;
+  font-size: 13px;
+}
+
+/* Agent Reasoning */
+.ts-agent-reasoning strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #495057;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ts-agent-reasoning p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #667eea;
+}
+
+/* Agent Confidence Detail */
+.ts-agent-confidence-detail {
+  font-size: 13px;
+}
+
+.ts-agent-confidence-detail strong {
+  display: inline-block;
+  margin-right: 6px;
+  color: #495057;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ts-confidence-category {
+  color: #6c757d;
+  font-style: italic;
+  text-transform: capitalize;
+}
+
+.ts-confidence-bar-small {
+  height: 12px;
+  margin-top: 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.ts-confidence-bar-small .ts-confidence-fill {
+  height: 100%;
+  border-radius: 6px;
+}
+
+/* Agent Cutoff Message */
+.ts-agent-cutoff {
+  padding: 10px 12px;
+  background: #d1ecf1;
+  border: 1px solid #17a2b8;
+  border-radius: 6px;
+  color: #0c5460;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Agent Sources */
+.ts-agent-sources {
+  margin-top: 12px;
+}
+
+.ts-agent-sources strong {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #495057;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ts-no-sources-agent {
+  margin: 0;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  color: #6c757d;
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+}
+
+/* Scrollbar Styling */
+.ts-modal-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ts-modal-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.ts-modal-content::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.ts-modal-content::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .ts-modal-content {
+    max-width: 95%;
+    max-height: 90vh;
+  }
+  
+  .ts-modal-header {
+    padding: 20px 16px 12px;
+  }
+  
+  .ts-modal-body {
+    padding: 16px;
+  }
+  
+  .ts-fact-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .ts-confidence-wrapper {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  .ts-modal-content {
+    background: #2d2d2d;
+    color: #e0e0e0;
+  }
+  
+  .ts-modal-header {
+    border-bottom-color: #444;
+  }
+  
+  .ts-modal-header h3 {
+    color: #e0e0e0;
+  }
+  
+  .ts-sentence-text {
+    background: #3a3a3a;
+    color: #b0b0b0;
+  }
+  
+  .ts-fact-statement {
+    color: #e0e0e0;
+  }
+  
+  .ts-fact-reasoning {
+    background: #3a3a3a;
+    color: #b0b0b0;
+  }
+  
+  .ts-source-item {
+    background: #3a3a3a;
+  }
+  
+  .ts-source-item:hover {
+    background: #444;
+  }
+  
+  .ts-agent-section summary {
+    background: #3a3a3a;
+  }
+  
+  .ts-agent-section summary:hover {
+    background: #444;
+  }
+  
+  .ts-agent-content {
+    background: #2d2d2d;
+    color: #b0b0b0;
+  }
+}

@@ -1,0 +1,144 @@
+/**
+ * Source Credibility Tier Configuration
+ * Defines tier mappings for different domains and categories
+ */
+
+export const sourceTiers = {
+  globalDefaults: [
+    { pattern: "*.gov", tier: 1 },
+    { pattern: "*.edu", tier: 1 },
+    { pattern: "nih.gov", tier: 1 },
+    { pattern: "cdc.gov", tier: 1 },
+    { pattern: "fda.gov", tier: 1 },
+    { pattern: "who.int", tier: 1 },
+    { pattern: "pubmed.ncbi.nlm.nih.gov", tier: 1 },
+    { pattern: "nature.com", tier: 1 },
+    { pattern: "science.org", tier: 1 },
+    { pattern: "sciencedirect.com", tier: 1 },
+    { pattern: "springer.com", tier: 1 },
+    { pattern: "wiley.com", tier: 1 },
+    { pattern: "census.gov", tier: 1 },
+    { pattern: "bls.gov", tier: 1 },
+    { pattern: "worldbank.org", tier: 1 },
+    { pattern: "un.org", tier: 1 },
+    { pattern: "supremecourt.gov", tier: 1 },
+    { pattern: "congress.gov", tier: 1 },
+    { pattern: "reuters.com", tier: 2 },
+    { pattern: "apnews.com", tier: 2 },
+    { pattern: "bbc.com", tier: 2 },
+    { pattern: "bbc.co.uk", tier: 2 },
+    { pattern: "nytimes.com", tier: 2 },
+    { pattern: "washingtonpost.com", tier: 2 },
+    { pattern: "theguardian.com", tier: 2 },
+    { pattern: "wsj.com", tier: 2 },
+    { pattern: "ft.com", tier: 2 },
+    { pattern: "economist.com", tier: 2 },
+    { pattern: "npr.org", tier: 2 },
+    { pattern: "pbs.org", tier: 2 },
+    { pattern: "wikipedia.org", tier: 3 },
+    { pattern: "*.wikipedia.org", tier: 3 },
+    { pattern: "britannica.com", tier: 3 },
+    { pattern: "*.medium.com", tier: 3 },
+    { pattern: "forbes.com", tier: 3 },
+    { pattern: "businessinsider.com", tier: 3 },
+    { pattern: "cnn.com", tier: 3 },
+    { pattern: "cnbc.com", tier: 3 },
+    { pattern: "*.reddit.com", tier: 4 },
+    { pattern: "reddit.com", tier: 4 },
+    { pattern: "twitter.com", tier: 4 },
+    { pattern: "x.com", tier: 4 },
+    { pattern: "facebook.com", tier: 4 },
+    { pattern: "instagram.com", tier: 4 },
+    { pattern: "tiktok.com", tier: 4 },
+    { pattern: "youtube.com", tier: 4 }
+  ],
+  categoryOverrides: {
+    MEDICAL_BIOLOGICAL: [
+      { pattern: "mayoclinic.org", tier: 1 },
+      { pattern: "clevelandclinic.org", tier: 1 },
+      { pattern: "hopkinsmedicine.org", tier: 1 },
+      { pattern: "nejm.org", tier: 1 },
+      { pattern: "thelancet.com", tier: 1 },
+      { pattern: "bmj.com", tier: 1 },
+      { pattern: "jamanetwork.com", tier: 1 },
+      { pattern: "medlineplus.gov", tier: 1 },
+      { pattern: "cancer.gov", tier: 1 },
+      { pattern: "heart.org", tier: 2 },
+      { pattern: "diabetes.org", tier: 2 },
+      { pattern: "webmd.com", tier: 3 },
+      { pattern: "healthline.com", tier: 3 }
+    ],
+    LEGAL_REGULATORY: [
+      { pattern: "supremecourt.gov", tier: 1 },
+      { pattern: "uscourts.gov", tier: 1 },
+      { pattern: "justice.gov", tier: 1 },
+      { pattern: "law.cornell.edu", tier: 1 },
+      { pattern: "*.uscourts.gov", tier: 1 },
+      { pattern: "pacer.gov", tier: 1 },
+      { pattern: "courtlistener.com", tier: 2 },
+      { pattern: "findlaw.com", tier: 2 },
+      { pattern: "justia.com", tier: 2 },
+      { pattern: "nolo.com", tier: 3 }
+    ],
+    SCIENTIFIC_TECHNICAL: [
+      { pattern: "arxiv.org", tier: 1 },
+      { pattern: "plos.org", tier: 1 },
+      { pattern: "ieee.org", tier: 1 },
+      { pattern: "acm.org", tier: 1 },
+      { pattern: "aps.org", tier: 1 },
+      { pattern: "aaas.org", tier: 1 },
+      { pattern: "cell.com", tier: 1 },
+      { pattern: "pnas.org", tier: 1 },
+      { pattern: "scientificamerican.com", tier: 2 },
+      { pattern: "newscientist.com", tier: 2 },
+      { pattern: "quantamagazine.org", tier: 2 }
+    ],
+    STATISTICAL_QUANTITATIVE: [
+      { pattern: "census.gov", tier: 1 },
+      { pattern: "bls.gov", tier: 1 },
+      { pattern: "bea.gov", tier: 1 },
+      { pattern: "data.gov", tier: 1 },
+      { pattern: "worldbank.org", tier: 1 },
+      { pattern: "imf.org", tier: 1 },
+      { pattern: "oecd.org", tier: 1 },
+      { pattern: "un.org", tier: 1 },
+      { pattern: "data.un.org", tier: 1 },
+      { pattern: "statista.com", tier: 2 },
+      { pattern: "pewresearch.org", tier: 2 },
+      { pattern: "gallup.com", tier: 2 }
+    ],
+    HISTORICAL_EVENT: [
+      { pattern: "archives.gov", tier: 1 },
+      { pattern: "loc.gov", tier: 1 },
+      { pattern: "history.com", tier: 2 },
+      { pattern: "smithsonianmag.com", tier: 2 },
+      { pattern: "britannica.com", tier: 2 },
+      { pattern: "historytoday.com", tier: 2 }
+    ],
+    GEOPOLITICAL_SOCIAL: [
+      { pattern: "state.gov", tier: 1 },
+      { pattern: "un.org", tier: 1 },
+      { pattern: "cia.gov", tier: 1 },
+      { pattern: "cfr.org", tier: 2 },
+      { pattern: "foreignaffairs.com", tier: 2 },
+      { pattern: "brookings.edu", tier: 2 }
+    ],
+    DEFINITIONAL_ATTRIBUTE: [
+      { pattern: "merriam-webster.com", tier: 2 },
+      { pattern: "dictionary.com", tier: 2 },
+      { pattern: "oxfordlearnersdictionaries.com", tier: 2 },
+      { pattern: "britannica.com", tier: 2 }
+    ],
+    ATTRIBUTION_QUOTE: [
+      { pattern: "c-span.org", tier: 1 },
+      { pattern: "whitehouse.gov", tier: 1 },
+      { pattern: "*.gov", tier: 1 }
+    ],
+    CAUSAL_RELATIONAL: [
+      { pattern: "nature.com", tier: 1 },
+      { pattern: "science.org", tier: 1 },
+      { pattern: "pnas.org", tier: 1 }
+    ]
+  }
+};
+

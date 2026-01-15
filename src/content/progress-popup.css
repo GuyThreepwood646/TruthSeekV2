@@ -1,0 +1,639 @@
+/**
+ * TruthSeek Progress Popup Styles
+ * Modern, elegant floating progress indicator
+ */
+
+/* Main popup container - floating bottom-right */
+.truthseek-progress-popup {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 360px;
+  max-width: calc(100vw - 48px);
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 
+    0 4px 6px rgba(0, 0, 0, 0.07),
+    0 10px 20px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+  z-index: 2147483647; /* Maximum z-index */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1a1a1a;
+  
+  /* Animation */
+  opacity: 0;
+  transform: translateY(20px) scale(0.95);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.truthseek-progress-popup.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* Header section */
+.truthseek-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 16px 12px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.truthseek-progress-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  color: #667eea;
+}
+
+.truthseek-progress-title {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+  letter-spacing: -0.01em;
+}
+
+.truthseek-progress-close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.truthseek-progress-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1a1a1a;
+}
+
+.truthseek-progress-close:active {
+  background: rgba(0, 0, 0, 0.1);
+  transform: scale(0.95);
+}
+
+/* Body section */
+.truthseek-progress-body {
+  padding: 16px;
+}
+
+.truthseek-progress-step {
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 12px;
+  min-height: 21px;
+}
+
+/* Progress bar */
+.truthseek-progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.truthseek-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  border-radius: 4px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
+}
+
+/* Animated progress bar for indeterminate state */
+.truthseek-progress-bar[style*="width: 0%"] {
+  width: 30% !important;
+  animation: truthseek-progress-indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes truthseek-progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(300%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+/* Stats */
+.truthseek-progress-stats {
+  font-size: 13px;
+  color: #6b7280;
+  text-align: right;
+  margin-bottom: 12px;
+}
+
+/* Agent updates */
+.truthseek-progress-agents {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.truthseek-progress-agent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 6px;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.truthseek-progress-agent .agent-name {
+  font-weight: 500;
+  color: #374151;
+}
+
+.truthseek-progress-agent .agent-status {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* Agent status colors */
+.truthseek-progress-agent.complete {
+  background: rgba(40, 167, 69, 0.08);
+  border-left: 3px solid #28a745;
+}
+
+.truthseek-progress-agent.complete .agent-status {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.truthseek-progress-agent.failed {
+  background: rgba(220, 53, 69, 0.08);
+  border-left: 3px solid #dc3545;
+}
+
+.truthseek-progress-agent.failed .agent-status {
+  color: #dc3545;
+  font-weight: 500;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .truthseek-progress-popup {
+    background: #1f2937;
+    color: #f3f4f6;
+    box-shadow: 
+      0 4px 6px rgba(0, 0, 0, 0.3),
+      0 10px 20px rgba(0, 0, 0, 0.4),
+      0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+  
+  .truthseek-progress-header {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+  
+  .truthseek-progress-title {
+    color: #f3f4f6;
+  }
+  
+  .truthseek-progress-close {
+    color: #9ca3af;
+  }
+  
+  .truthseek-progress-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #f3f4f6;
+  }
+  
+  .truthseek-progress-close:active {
+    background: rgba(255, 255, 255, 0.15);
+  }
+  
+  .truthseek-progress-step {
+    color: #d1d5db;
+  }
+  
+  .truthseek-progress-bar-container {
+    background: rgba(102, 126, 234, 0.2);
+  }
+  
+  .truthseek-progress-stats {
+    color: #9ca3af;
+  }
+  
+  .truthseek-progress-agents {
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+  
+  .truthseek-progress-agent {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  
+  .truthseek-progress-agent .agent-name {
+    color: #d1d5db;
+  }
+  
+  .truthseek-progress-agent .agent-status {
+    color: #9ca3af;
+  }
+  
+  .truthseek-progress-agent.complete {
+    background: rgba(40, 167, 69, 0.15);
+  }
+  
+  .truthseek-progress-agent.failed {
+    background: rgba(220, 53, 69, 0.15);
+  }
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+  .truthseek-progress-popup {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-width: none;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .truthseek-progress-popup,
+  .truthseek-progress-bar,
+  .truthseek-progress-close,
+  .truthseek-progress-agent {
+    transition: none;
+  }
+  
+  .truthseek-progress-bar {
+    animation: none;
+  }
+  
+  .truthseek-progress-icon svg path animateTransform {
+    display: none;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .truthseek-progress-popup {
+    border: 2px solid currentColor;
+  }
+  
+  .truthseek-progress-bar-container {
+    border: 1px solid currentColor;
+  }
+}
+
+/* ========================================
+   RESULTS MODE STYLES
+   ======================================== */
+
+.truthseek-progress-popup.results-mode {
+  width: 400px;
+}
+
+/* Results header with status colors */
+.truthseek-progress-header.status-success {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border-bottom: none;
+}
+
+.truthseek-progress-header.status-warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  border-bottom: none;
+}
+
+.truthseek-progress-header.status-critical {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  border-bottom: none;
+}
+
+.truthseek-progress-header.status-neutral {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-bottom: none;
+}
+
+.truthseek-results-close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  cursor: pointer;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.truthseek-results-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.truthseek-results-close:active {
+  background: rgba(255, 255, 255, 0.4);
+  transform: scale(0.95);
+}
+
+/* Results body */
+.truthseek-results-body {
+  padding: 20px;
+}
+
+/* Results summary */
+.truthseek-results-summary {
+  margin-bottom: 20px;
+}
+
+.truthseek-result-stat {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.truthseek-stat-value {
+  display: block;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 8px;
+}
+
+.truthseek-stat-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Breakdown grid */
+.truthseek-result-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.truthseek-breakdown-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 12px;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.truthseek-breakdown-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.truthseek-breakdown-true {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.15) 100%);
+  border: 2px solid #10b981;
+}
+
+.truthseek-breakdown-false {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.15) 100%);
+  border: 2px solid #ef4444;
+}
+
+.truthseek-breakdown-unverified {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(217, 119, 6, 0.15) 100%);
+  border: 2px solid #f59e0b;
+}
+
+.truthseek-breakdown-count {
+  display: block;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.truthseek-breakdown-true .truthseek-breakdown-count {
+  color: #059669;
+}
+
+.truthseek-breakdown-false .truthseek-breakdown-count {
+  color: #dc2626;
+}
+
+.truthseek-breakdown-unverified .truthseek-breakdown-count {
+  color: #d97706;
+}
+
+.truthseek-breakdown-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.truthseek-breakdown-true .truthseek-breakdown-label {
+  color: #059669;
+}
+
+.truthseek-breakdown-false .truthseek-breakdown-label {
+  color: #dc2626;
+}
+
+.truthseek-breakdown-unverified .truthseek-breakdown-label {
+  color: #d97706;
+}
+
+/* Overall confidence */
+.truthseek-overall-confidence {
+  padding: 16px;
+  background: rgba(102, 126, 234, 0.05);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.truthseek-confidence-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.truthseek-confidence-bar-large {
+  width: 100%;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.truthseek-confidence-fill-large {
+  height: 100%;
+  border-radius: 12px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
+}
+
+.truthseek-confidence-fill-large.confidence-high {
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+}
+
+.truthseek-confidence-fill-large.confidence-medium {
+  background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
+}
+
+.truthseek-confidence-fill-large.confidence-low {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+}
+
+.truthseek-confidence-value {
+  display: block;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+/* Results hint */
+.truthseek-results-hint {
+  text-align: center;
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 6px;
+  font-style: italic;
+}
+
+/* Dark mode for results */
+@media (prefers-color-scheme: dark) {
+  .truthseek-stat-label {
+    color: #9ca3af;
+  }
+  
+  .truthseek-breakdown-true {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.2) 100%);
+    border-color: #10b981;
+  }
+  
+  .truthseek-breakdown-false {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.2) 100%);
+    border-color: #ef4444;
+  }
+  
+  .truthseek-breakdown-unverified {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.2) 100%);
+    border-color: #f59e0b;
+  }
+  
+  .truthseek-breakdown-true .truthseek-breakdown-count {
+    color: #10b981;
+  }
+  
+  .truthseek-breakdown-false .truthseek-breakdown-count {
+    color: #ef4444;
+  }
+  
+  .truthseek-breakdown-unverified .truthseek-breakdown-count {
+    color: #f59e0b;
+  }
+  
+  .truthseek-breakdown-true .truthseek-breakdown-label {
+    color: #10b981;
+  }
+  
+  .truthseek-breakdown-false .truthseek-breakdown-label {
+    color: #ef4444;
+  }
+  
+  .truthseek-breakdown-unverified .truthseek-breakdown-label {
+    color: #f59e0b;
+  }
+  
+  .truthseek-overall-confidence {
+    background: rgba(102, 126, 234, 0.1);
+  }
+  
+  .truthseek-confidence-label {
+    color: #d1d5db;
+  }
+  
+  .truthseek-confidence-bar-large {
+    background: rgba(255, 255, 255, 0.1);
+  }
+  
+  .truthseek-confidence-value {
+    color: #f3f4f6;
+  }
+  
+  .truthseek-results-hint {
+    color: #9ca3af;
+    background: rgba(255, 255, 255, 0.05);
+  }
+}
+
+/* Mobile responsive for results */
+@media (max-width: 480px) {
+  .truthseek-progress-popup.results-mode {
+    width: auto;
+  }
+  
+  .truthseek-stat-value {
+    font-size: 36px;
+  }
+  
+  .truthseek-result-breakdown {
+    gap: 8px;
+  }
+  
+  .truthseek-breakdown-item {
+    padding: 16px 8px;
+  }
+  
+  .truthseek-breakdown-count {
+    font-size: 26px;
+  }
+  
+  .truthseek-breakdown-label {
+    font-size: 11px;
+  }
+}
+

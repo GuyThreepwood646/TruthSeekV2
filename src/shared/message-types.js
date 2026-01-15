@@ -1,0 +1,57 @@
+/**
+ * TruthSeek Message Type Definitions
+ * Enum for all inter-component message types
+ */
+
+export const MessageType = {
+  // Workflow control
+  START_FACT_CHECK: 'START_FACT_CHECK',
+  CANCEL_FACT_CHECK: 'CANCEL_FACT_CHECK',
+  
+  // Extraction phase
+  EXTRACTION_PROGRESS: 'EXTRACTION_PROGRESS',
+  EXTRACTION_COMPLETE: 'EXTRACTION_COMPLETE',
+  
+  // Verification phase
+  VERIFICATION_PROGRESS: 'VERIFICATION_PROGRESS',
+  VERIFICATION_COMPLETE: 'VERIFICATION_COMPLETE',
+  
+  // Page modification
+  HIGHLIGHT_SENTENCE: 'HIGHLIGHT_SENTENCE',
+  UPDATE_HIGHLIGHT_COLOR: 'UPDATE_HIGHLIGHT_COLOR',
+  
+  // Modal
+  OPEN_MODAL: 'OPEN_MODAL',
+  UPDATE_MODAL: 'UPDATE_MODAL',
+  CLOSE_MODAL: 'CLOSE_MODAL',
+  
+  // Progress UI
+  SHOW_PROGRESS: 'SHOW_PROGRESS',
+  UPDATE_PROGRESS: 'UPDATE_PROGRESS',
+  SHOW_RESULTS: 'SHOW_RESULTS',
+  CLOSE_RESULTS: 'CLOSE_RESULTS',
+  
+  // State management
+  GET_STATE: 'GET_STATE',
+  STATE_UPDATE: 'STATE_UPDATE',
+  
+  // Fact details
+  GET_FACT_DETAILS: 'GET_FACT_DETAILS',
+  
+  // Content extraction
+  GET_PAGE_CONTENT: 'GET_PAGE_CONTENT',
+  PAGE_CONTENT_RESULT: 'PAGE_CONTENT_RESULT',
+  
+  // Agent management
+  SAVE_AGENT_CONFIG: 'SAVE_AGENT_CONFIG',
+  REMOVE_AGENT: 'REMOVE_AGENT',
+  GET_AGENTS: 'GET_AGENTS',
+  INITIATE_OAUTH: 'INITIATE_OAUTH',
+  
+  // Error handling
+  ERROR: 'ERROR'
+};
+
+// Freeze to prevent modification
+Object.freeze(MessageType);
+

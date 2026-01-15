@@ -1,0 +1,173 @@
+/**
+ * TruthSeek Content Script Styles
+ * Styles for sentence highlighting with modern, intuitive design
+ */
+
+/* Highlight wrapper for fact-containing sentences */
+.truthseek-highlight {
+  position: relative;
+  display: inline;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 2px 4px;
+  margin: 0 -2px;
+  border-radius: 3px;
+  
+  /* Inherit text properties to avoid breaking layout */
+  line-height: inherit;
+  font-size: inherit;
+  font-family: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-decoration: inherit;
+}
+
+/* Processing state - soft blue with subtle animation */
+.truthseek-highlight.processing {
+  background: linear-gradient(
+    90deg,
+    rgba(102, 126, 234, 0.15) 0%,
+    rgba(102, 126, 234, 0.25) 50%,
+    rgba(102, 126, 234, 0.15) 100%
+  );
+  background-size: 200% 100%;
+  animation: truthseek-pulse 2s ease-in-out infinite;
+  border-bottom: 2px solid rgba(102, 126, 234, 0.5);
+  box-shadow: 0 1px 3px rgba(102, 126, 234, 0.1);
+}
+
+@keyframes truthseek-pulse {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* True verdict - vibrant green */
+.truthseek-highlight.true {
+  background-color: rgba(40, 167, 69, 0.18);
+  border-bottom: 2px solid rgba(40, 167, 69, 0.7);
+  box-shadow: 0 1px 3px rgba(40, 167, 69, 0.15);
+}
+
+/* False verdict - clear red */
+.truthseek-highlight.false {
+  background-color: rgba(220, 53, 69, 0.18);
+  border-bottom: 2px solid rgba(220, 53, 69, 0.7);
+  box-shadow: 0 1px 3px rgba(220, 53, 69, 0.15);
+}
+
+/* Unverified verdict - warm amber */
+.truthseek-highlight.unverified {
+  background-color: rgba(255, 193, 7, 0.18);
+  border-bottom: 2px solid rgba(255, 193, 7, 0.7);
+  box-shadow: 0 1px 3px rgba(255, 193, 7, 0.15);
+}
+
+/* Hover effects - enhance interactivity */
+.truthseek-highlight:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
+.truthseek-highlight.processing:hover {
+  background-color: rgba(102, 126, 234, 0.28);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.2);
+}
+
+.truthseek-highlight.true:hover {
+  background-color: rgba(40, 167, 69, 0.25);
+  box-shadow: 0 2px 6px rgba(40, 167, 69, 0.25);
+}
+
+.truthseek-highlight.false:hover {
+  background-color: rgba(220, 53, 69, 0.25);
+  box-shadow: 0 2px 6px rgba(220, 53, 69, 0.25);
+}
+
+.truthseek-highlight.unverified:hover {
+  background-color: rgba(255, 193, 7, 0.25);
+  box-shadow: 0 2px 6px rgba(255, 193, 7, 0.25);
+}
+
+/* Active/click state */
+.truthseek-highlight:active {
+  transform: translateY(0);
+  filter: brightness(0.95);
+}
+
+/* Focus state for accessibility */
+.truthseek-highlight:focus {
+  outline: 2px solid rgba(102, 126, 234, 0.6);
+  outline-offset: 2px;
+}
+
+/* Ensure highlights work with dark mode */
+@media (prefers-color-scheme: dark) {
+  .truthseek-highlight.processing {
+    background-color: rgba(102, 126, 234, 0.25);
+    border-bottom-color: rgba(102, 126, 234, 0.6);
+  }
+  
+  .truthseek-highlight.true {
+    background-color: rgba(40, 167, 69, 0.25);
+    border-bottom-color: rgba(40, 167, 69, 0.8);
+  }
+  
+  .truthseek-highlight.false {
+    background-color: rgba(220, 53, 69, 0.25);
+    border-bottom-color: rgba(220, 53, 69, 0.8);
+  }
+  
+  .truthseek-highlight.unverified {
+    background-color: rgba(255, 193, 7, 0.25);
+    border-bottom-color: rgba(255, 193, 7, 0.8);
+  }
+}
+
+/* Ensure highlights don't interfere with page layout */
+.truthseek-highlight * {
+  display: inline;
+}
+
+/* Prevent highlights from affecting text selection */
+.truthseek-highlight::selection {
+  background: rgba(102, 126, 234, 0.3);
+}
+
+/* Tooltip indicator (small icon on hover) */
+.truthseek-highlight::after {
+  content: '';
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.truthseek-highlight:hover::after {
+  opacity: 0.6;
+}
+
+.truthseek-highlight.processing::after {
+  background-color: rgba(102, 126, 234, 0.8);
+}
+
+.truthseek-highlight.true::after {
+  background-color: rgba(40, 167, 69, 0.8);
+}
+
+.truthseek-highlight.false::after {
+  background-color: rgba(220, 53, 69, 0.8);
+}
+
+.truthseek-highlight.unverified::after {
+  background-color: rgba(255, 193, 7, 0.8);
+}
+
