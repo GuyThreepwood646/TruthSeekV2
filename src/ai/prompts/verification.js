@@ -12,6 +12,7 @@
  * @param {string} context.modelCutoffDate - Model's knowledge cutoff date
  * @param {Source[]} [context.supportingSources] - Sources that may support the fact
  * @param {Source[]} [context.refutingSources] - Sources that may refute the fact
+ * @param {object|null} [context.pageMetadata] - Page metadata for context
  * @returns {{system: string, user: string}}
  */
 export function buildVerificationPrompt(context) {
@@ -21,7 +22,8 @@ export function buildVerificationPrompt(context) {
     currentDate,
     modelCutoffDate,
     supportingSources = [],
-    refutingSources = []
+    refutingSources = [],
+    pageMetadata = null
   } = context;
   
   const system = `You are a fact verification specialist. Your ONLY job is to verify facts using the web search results provided.
@@ -74,6 +76,9 @@ SOURCE TIERS:
 
 CATEGORY: ${category}
 
+PAGE METADATA (context only):
+${formatMetadata(pageMetadata)}
+
 SUPPORTING SOURCES FOUND:
 ${formatSources(supportingSources)}
 
@@ -123,6 +128,25 @@ function getTierLabel(tier) {
   return labels[tier] || 'Unknown';
 }
 
+function formatMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object') {
+    return 'None provided.';
+  }
+  
+  const lines = [];
+  if (metadata.title) lines.push(`Title: ${metadata.title}`);
+  if (metadata.publishedTime) lines.push(`Published: ${metadata.publishedTime}`);
+  if (metadata.modifiedTime) lines.push(`Updated: ${metadata.modifiedTime}`);
+  if (metadata.section) lines.push(`Section: ${metadata.section}`);
+  if (metadata.siteName) lines.push(`Publisher: ${metadata.siteName}`);
+  if (metadata.author) lines.push(`Author: ${metadata.author}`);
+  if (metadata.canonicalUrl) lines.push(`Canonical URL: ${metadata.canonicalUrl}`);
+  if (metadata.keywords) lines.push(`Keywords: ${metadata.keywords}`);
+  if (metadata.language) lines.push(`Language: ${metadata.language}`);
+  
+  return lines.length > 0 ? lines.join('\n') : 'None provided.';
+}
+
 /**
  * Build search query for fact verification
  * @param {Fact} fact - Fact to verify
@@ -153,7 +177,8 @@ export function buildGroundedVerificationPrompt(context) {
     fact,
     category,
     currentDate,
-    modelCutoffDate
+    modelCutoffDate,
+    pageMetadata = null
   } = context;
   
   const system = `You are a fact verification specialist with access to Google Search.
@@ -206,6 +231,9 @@ SOURCE EVALUATION:
 "${fact.originalText}"
 
 CATEGORY: ${category}
+
+PAGE METADATA (context only):
+${formatMetadata(pageMetadata)}
 
 Use Google Search to find reliable sources that either support or refute this fact. Review the sources you find and provide your verdict with citations. Respond with valid JSON only.`;
 

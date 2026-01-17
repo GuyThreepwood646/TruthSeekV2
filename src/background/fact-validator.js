@@ -8,17 +8,19 @@ import { VALID_CATEGORIES, CATEGORIES } from '../config/categories.js';
 /**
  * Validate and sanitize a batch of facts
  * @param {Fact[]} facts - Facts to validate
+ * @param {Sentence[]} sentences - Source sentences for context
  * @returns {ValidationResult} Validation results with valid facts and errors
  */
-export function validateFacts(facts) {
+export function validateFacts(facts, sentences = []) {
   const validFacts = [];
   const errors = [];
+  const sentenceMap = buildSentenceMap(sentences);
   
   console.log(`Validating ${facts.length} facts...`);
   
   for (let i = 0; i < facts.length; i++) {
     const fact = facts[i];
-    const validation = validateSingleFact(fact, i);
+    const validation = validateSingleFact(fact, i, sentenceMap);
     
     if (validation.isValid) {
       validFacts.push(validation.fact);
@@ -37,6 +39,7 @@ export function validateFacts(facts) {
   return {
     validFacts,
     errors,
+    invalidFacts: errors,
     totalProcessed: facts.length,
     validCount: validFacts.length,
     errorCount: errors.length
@@ -47,11 +50,13 @@ export function validateFacts(facts) {
  * Validate a single fact
  * @param {Fact} fact - Fact to validate
  * @param {number} index - Index for error reporting
+ * @param {Map<string, Sentence>} sentenceMap - Map of sentenceId to sentence
  * @returns {object} Validation result
  * @private
  */
-function validateSingleFact(fact, index) {
+function validateSingleFact(fact, index, sentenceMap) {
   const errors = [];
+  const sentence = sentenceMap.get(fact.sentenceId);
   
   // AC3.5.1: Verify category is one of the 9 predefined categories
   if (!fact.category) {
@@ -71,6 +76,10 @@ function validateSingleFact(fact, index) {
     } else if (fact[field].trim().length === 0) {
       errors.push(`Field ${field} cannot be empty`);
     }
+  }
+  
+  if (sentence && isMetadataSentence(sentence.text)) {
+    errors.push('Fact appears to come from article metadata');
   }
   
   // AC3.5.3: Check text length constraints (min 10 chars, max 500 chars)
@@ -131,13 +140,138 @@ function validateSingleFact(fact, index) {
   }
   
   // AC3.5.6: Sanitize and normalize valid facts
-  const sanitizedFact = sanitizeFact(fact);
+  const enrichedFact = applyContextEnrichment(fact, sentenceMap);
+  const sanitizedFact = sanitizeFact(enrichedFact);
   
   return {
     isValid: true,
     errors: [],
     fact: sanitizedFact
   };
+}
+
+function buildSentenceMap(sentences) {
+  const map = new Map();
+  if (!Array.isArray(sentences)) {
+    return map;
+  }
+  for (const sentence of sentences) {
+    if (sentence && sentence.id) {
+      map.set(sentence.id, sentence);
+    }
+  }
+  return map;
+}
+
+function isMetadataSentence(text) {
+  if (!text || typeof text !== 'string') {
+    return false;
+  }
+  
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return true;
+  }
+  
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('updated ') || lower.startsWith('published ')) {
+    return true;
+  }
+  if (lower.startsWith('by ') && trimmed.length < 120) {
+    return true;
+  }
+  if (/\bap photo\b/i.test(trimmed)) {
+    return true;
+  }
+  if (/\bread more\b/i.test(trimmed)) {
+    return true;
+  }
+  
+  return false;
+}
+
+function applyContextEnrichment(fact, sentenceMap) {
+  if (!fact || typeof fact !== 'object' || !sentenceMap || sentenceMap.size === 0) {
+    return fact;
+  }
+  
+  const currentSentence = sentenceMap.get(fact.sentenceId);
+  if (!currentSentence || !currentSentence.text) {
+    return fact;
+  }
+  
+  let searchableText = fact.searchableText || '';
+  const enrichedRestrictions = enrichRestrictionsContext(currentSentence.text, searchableText, sentenceMap, fact.sentenceId);
+  
+  if (enrichedRestrictions && enrichedRestrictions !== searchableText) {
+    return {
+      ...fact,
+      searchableText: enrichedRestrictions
+    };
+  }
+  
+  return fact;
+}
+
+function enrichRestrictionsContext(currentText, searchableText, sentenceMap, sentenceId) {
+  if (!currentText || !searchableText) {
+    return null;
+  }
+  
+  const lowerCurrent = currentText.toLowerCase();
+  const lowerSearch = searchableText.toLowerCase();
+  if (!lowerCurrent.includes('restrictions') || lowerSearch.includes('restrictions on') || lowerSearch.includes('restrictions to')) {
+    return null;
+  }
+  
+  const context = findRecentRestrictionTarget(sentenceMap, sentenceId);
+  if (!context) {
+    return null;
+  }
+  
+  if (/restrictions\b/i.test(searchableText)) {
+    return searchableText.replace(/restrictions\b/i, `restrictions ${context}`);
+  }
+  
+  return null;
+}
+
+function findRecentRestrictionTarget(sentenceMap, sentenceId) {
+  const index = parseSentenceIndex(sentenceId);
+  if (index === null) {
+    return null;
+  }
+  
+  for (let offset = 1; offset <= 2; offset++) {
+    const previousId = `s-${String(index - offset).padStart(4, '0')}`;
+    const previous = sentenceMap.get(previousId);
+    if (!previous || !previous.text) {
+      continue;
+    }
+    
+    const match = previous.text.match(/\brestrictions?\s+(on|to|of|for)\s+([^.;:]+)/i);
+    if (match && match[1] && match[2]) {
+      const target = match[2].trim();
+      if (target.length > 3) {
+        return `${match[1]} ${target}`;
+      }
+    }
+  }
+  
+  return null;
+}
+
+function parseSentenceIndex(sentenceId) {
+  if (!sentenceId || typeof sentenceId !== 'string') {
+    return null;
+  }
+  
+  const match = sentenceId.match(/^s-(\d{4})$/);
+  if (!match) {
+    return null;
+  }
+  
+  return Number.parseInt(match[1], 10);
 }
 
 /**

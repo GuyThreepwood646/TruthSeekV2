@@ -6,7 +6,7 @@
 import { AIProvider, AIProviderError, AIProviderException } from '../provider-interface.js';
 import { encrypt, decrypt } from '../../utils/crypto.js';
 import { getModelMetadata } from '../../config/model-metadata.js';
-import { parseExtractionResponse, buildExtractionPrompt, cleanJsonResponse } from '../prompts/extraction.js';
+import { parseExtractionResponse, buildAdaptiveExtractionPrompt, cleanJsonResponse } from '../prompts/extraction.js';
 import { buildVerificationPrompt, buildSearchQuery } from '../prompts/verification.js';
 import { calculateConfidence } from '../../background/confidence-scoring.js';
 import { checkKnowledgeCutoff } from '../../background/verification-orchestrator.js';
@@ -189,7 +189,8 @@ export class AnthropicProvider extends AIProvider {
         currentDate,
         modelCutoffDate: providerInfo.knowledgeCutoff,
         supportingSources: sources.supporting,
-        refutingSources: sources.refuting
+        refutingSources: sources.refuting,
+        pageMetadata: fact.pageMetadata || null
       });
       
       // Call Anthropic for verification
@@ -253,8 +254,23 @@ export class AnthropicProvider extends AIProvider {
         throw new Error('Incomplete verification response');
       }
       
-      // Calculate confidence
       const hasVerifiedUrls = sources.supporting.length > 0 || sources.refuting.length > 0;
+      if (!hasVerifiedUrls) {
+        return {
+          factId: fact.id,
+          agentId: this.config.id,
+          verdict: 'UNVERIFIED',
+          confidence: 0,
+          confidenceCategory: 'very-low',
+          reasoning: 'No verifiable sources were found to support or refute this fact.',
+          sources: [],
+          knowledgeCutoffMessage: null,
+          tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
+          timestamp: Date.now()
+        };
+      }
+      
+      // Calculate confidence
       const confidenceResult = calculateConfidence(
         result.verdict,
         result.confidence / 100,
@@ -539,7 +555,7 @@ export class AnthropicProvider extends AIProvider {
    * @private
    */
   buildExtractionPrompt(content, categories) {
-    return buildExtractionPrompt(content, categories);
+    return buildAdaptiveExtractionPrompt(content, categories);
   }
 
   /**

@@ -22,6 +22,29 @@ export function createMessage(type, payload, tabId = null) {
 }
 
 /**
+ * Send message to background script
+ * @param {string} type - MessageType enum value
+ * @param {any} payload - Message payload
+ * @returns {Promise<any>} Response from background
+ */
+export async function sendToBackground(type, payload) {
+  const message = createMessage(type, payload);
+  
+  try {
+    const response = await chrome.runtime.sendMessage(message);
+    
+    if (response && response.error) {
+      throw new Error(response.error);
+    }
+    
+    return response?.data;
+  } catch (error) {
+    console.error('Error sending message to background:', error);
+    throw error;
+  }
+}
+
+/**
  * Sanitize untrusted payload data
  * Removes script tags, event handlers, and dangerous content
  * @param {any} payload - Untrusted input

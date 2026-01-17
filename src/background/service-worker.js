@@ -8,20 +8,20 @@ import { initialize as initializeMessaging, registerHandler } from './messaging.
 import { MessageType } from '../shared/message-types.js';
 
 // Import orchestrator
-import { start, cancel, getState } from './orchestrator.js';
+import { start, cancel, getState, resetForTab, resetState } from './orchestrator.js';
 
 // Initialize on install
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('TruthSeek installed:', details.reason);
   
   // Initialize default storage
-  chrome.storage.local.get(['agents', 'state'], (result) => {
+  chrome.storage.local.get(['agents', 'extensionState'], (result) => {
     if (!result.agents) {
       chrome.storage.local.set({ agents: [] });
     }
-    if (!result.state) {
+    if (!result.extensionState) {
       chrome.storage.local.set({ 
-        state: {
+        extensionState: {
           status: 'IDLE',
           currentStep: null,
           totalFacts: null,
@@ -37,6 +37,42 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 // Initialize messaging system
 initializeMessaging();
+
+// Migrate legacy state key if present
+async function migrateLegacyState() {
+  try {
+    const result = await chrome.storage.local.get(['extensionState', 'state']);
+    if (!result.extensionState && result.state) {
+      await chrome.storage.local.set({ extensionState: result.state });
+      console.log('[TruthSeek] Migrated legacy state to extensionState');
+    }
+  } catch (error) {
+    console.warn('[TruthSeek] Failed to migrate legacy state:', error);
+  }
+}
+
+migrateLegacyState();
+
+// Reset stale running state on startup
+async function reconcileState() {
+  const state = getState();
+  if (state.status !== 'RUNNING') {
+    return;
+  }
+  
+  if (!state.currentTabId) {
+    await resetState('Session cleared');
+    return;
+  }
+  
+  try {
+    await chrome.tabs.get(state.currentTabId);
+  } catch (error) {
+    await resetState('Session cleared');
+  }
+}
+
+reconcileState();
 
 // Register message handlers
 registerHandler(MessageType.GET_STATE, async (payload, sender) => {
@@ -129,6 +165,16 @@ registerHandler(MessageType.START_FACT_CHECK, async (payload, sender) => {
 registerHandler(MessageType.CANCEL_FACT_CHECK, async (payload, sender) => {
   cancel();
   return { success: true };
+});
+
+// Reset running state when the active tab reloads or navigates
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'loading') {
+    const state = getState();
+    if (state.status === 'RUNNING' && state.currentTabId === tabId) {
+      resetForTab(tabId, 'Page refreshed');
+    }
+  }
 });
 
 console.log('TruthSeek background service worker initialized');

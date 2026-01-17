@@ -5,6 +5,7 @@
 
 import { MessageType } from '../shared/message-types.js';
 import { createMessage, isValidMessage } from '../shared/message-utils.js';
+export { sendToBackground } from '../shared/message-utils.js';
 
 // Handler registry
 const handlers = new Map();
@@ -86,23 +87,6 @@ async function handleMessage(message, sender, sendResponse) {
  * @param {any} payload - Message payload
  * @returns {Promise<any>} Response from background
  */
-export async function sendToBackground(type, payload) {
-  const message = createMessage(type, payload);
-  
-  try {
-    const response = await chrome.runtime.sendMessage(message);
-    
-    if (response && response.error) {
-      throw new Error(response.error);
-    }
-    
-    return response?.data;
-  } catch (error) {
-    console.error('Error sending message to background:', error);
-    throw error;
-  }
-}
-
 /**
  * Send message to current tab's content script
  * @param {string} type - MessageType enum value

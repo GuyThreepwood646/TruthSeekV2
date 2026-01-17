@@ -5,6 +5,7 @@
 
 import { registerHandler } from './messaging.js';
 import { MessageType } from '../shared/message-types.js';
+import { escapeHtml, sanitizeUrl, clampPercent } from './dom-utils.js';
 
 // State
 let modalContainer = null;
@@ -38,7 +39,9 @@ export function initializeModal() {
   
   // Add event listeners
   const closeBtn = modalContainer.querySelector('.ts-modal-close');
-  closeBtn.addEventListener('click', closeModal);
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeModal);
+  }
   
   // Close on backdrop click
   modalContainer.addEventListener('click', (e) => {
@@ -66,6 +69,14 @@ export function initializeModal() {
 export function openModalForSentence(sentenceId, sentenceText, facts = []) {
   initializeModal();
   
+  if (!sentenceId) {
+    console.error('[MODAL] Missing sentenceId, cannot open modal');
+    return;
+  }
+  
+  if (currentSentenceId && currentSentenceId !== sentenceId) {
+    factsData.clear();
+  }
   currentSentenceId = sentenceId;
   
   console.log(`[MODAL] Opening modal for sentence: ${sentenceId}`);
@@ -93,7 +104,9 @@ export function openModalForSentence(sentenceId, sentenceText, facts = []) {
   
   // Update header with sentence text
   const sentenceTextEl = modalContainer.querySelector('.ts-sentence-text');
-  sentenceTextEl.textContent = sentenceText || 'Loading...';
+  if (sentenceTextEl) {
+    sentenceTextEl.textContent = sentenceText || 'Loading...';
+  }
   
   // Store facts data
   validFacts.forEach(fact => {
@@ -139,6 +152,9 @@ function renderFact(result) {
   div.className = 'ts-fact-item';
   div.dataset.factId = result.factId;
   
+  const aggregateConfidence = clampPercent(result.aggregateConfidence);
+  const confidenceCategory = result.aggregateConfidenceCategory || 'low';
+  
   // Determine verdict class
   const verdictClass = `ts-verdict-${(result.aggregateVerdict || 'unverified').toLowerCase()}`;
   
@@ -154,15 +170,15 @@ function renderFact(result) {
       <span class="ts-verdict-badge">${getVerdictEmoji(result.aggregateVerdict)} ${result.aggregateVerdict || 'UNVERIFIED'}</span>
       <div class="ts-confidence-wrapper">
         <div class="ts-confidence-bar">
-          <div class="ts-confidence-fill ${getConfidenceClass(result.aggregateConfidenceCategory || 'low')}" 
-               style="width: ${result.aggregateConfidence || 0}%"></div>
+          <div class="ts-confidence-fill ${getConfidenceClass(confidenceCategory)}" 
+               style="width: ${aggregateConfidence}%"></div>
         </div>
-        <span class="ts-confidence-text">${result.aggregateConfidence || 0}% confidence</span>
+        <span class="ts-confidence-text">${aggregateConfidence}% confidence</span>
       </div>
     </div>
     
     <div class="ts-fact-reasoning">
-      <p>${escapeHtml(primaryResult?.reasoning || 'Processing verification...')}</p>
+      <p>${escapeHtml(result.reasoning || 'Processing verification...')}</p>
     </div>
     
     ${result.hasDisagreement ? `
@@ -187,7 +203,7 @@ function renderFact(result) {
     
     <div class="ts-sources">
       <h4>Evidence Sources</h4>
-      ${renderSources(primaryResult?.sources || [])}
+      ${renderSources(result.sources || [])}
     </div>
     
     ${result.agentResults && result.agentResults.length > 1 ? renderAgentDetails(result.agentResults) : ''}
@@ -202,13 +218,16 @@ function renderFact(result) {
  * @returns {string} HTML string
  */
 function renderSources(sources) {
-  if (!sources || sources.length === 0) {
+  if (!Array.isArray(sources) || sources.length === 0) {
     return '<p class="ts-no-sources">No verified sources found</p>';
   }
   
   let html = '<ul class="ts-sources-list">';
   
   sources.forEach(source => {
+    if (!source) {
+      return;
+    }
     const tierBadge = getTierBadge(source.tier);
     const supportClass = source.isSupporting ? 'ts-supporting' : 'ts-refuting';
     const supportIcon = source.isSupporting ? '✓' : '✗';
@@ -216,7 +235,7 @@ function renderSources(sources) {
     
     html += `
       <li class="ts-source-item ${supportClass}">
-        <a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer" class="ts-source-link">
+        <a href="${sanitizeUrl(source.url)}" target="_blank" rel="noopener noreferrer" class="ts-source-link">
           ${escapeHtml(source.title || source.domain || 'Source')}
         </a>
         ${tierBadge}
@@ -260,13 +279,13 @@ function renderAgentDetails(agentResults) {
     html += `
       <details class="ts-agent-section ${disagreementClass}">
         <summary class="ts-agent-summary ${verdictClass}">
-          <span class="ts-agent-icon">${getProviderIcon(result.agentId)}</span>
+          <span class="ts-agent-icon">${getProviderIcon(result)}</span>
           <span class="ts-agent-label">${escapeHtml(agentLabel)}</span>
           <span class="ts-agent-verdict-badge">
             ${getVerdictEmoji(result.verdict)} ${result.verdict || 'UNVERIFIED'}
           </span>
           <span class="ts-agent-confidence-badge ${getConfidenceClass(result.confidenceCategory || 'low')}">
-            ${result.confidence || 0}%
+            ${clampPercent(result.confidence)}%
           </span>
           ${isDisagreement ? '<span class="ts-disagreement-indicator" title="This agent disagrees with others">[!]</span>' : ''}
         </summary>
@@ -283,11 +302,11 @@ function renderAgentDetails(agentResults) {
           </div>
           
           <div class="ts-agent-confidence-detail">
-            <strong>Confidence:</strong> ${result.confidence || 0}% 
+            <strong>Confidence:</strong> ${clampPercent(result.confidence)}% 
             <span class="ts-confidence-category">(${result.confidenceCategory || 'low'})</span>
             <div class="ts-confidence-bar ts-confidence-bar-small">
               <div class="ts-confidence-fill ${getConfidenceClass(result.confidenceCategory || 'low')}" 
-                   style="width: ${result.confidence || 0}%"></div>
+                   style="width: ${clampPercent(result.confidence)}%"></div>
             </div>
           </div>
           
@@ -320,6 +339,10 @@ function renderAgentDetails(agentResults) {
  * @private
  */
 function getAgentFriendlyName(result, index) {
+  if (result.providerName && result.modelDisplayName) {
+    return `${result.providerName} - ${result.modelDisplayName}`;
+  }
+  
   // Try to extract provider and model from agentId
   // Format: "providerId-model-timestamp" or similar
   if (result.agentId) {
@@ -341,10 +364,10 @@ function getAgentFriendlyName(result, index) {
  * @returns {string} Icon text
  * @private
  */
-function getProviderIcon(agentId) {
-  if (!agentId) return '[AI]';
+function getProviderIcon(result) {
+  const id = (result.providerId || result.agentId || '').toLowerCase();
+  if (!id) return '[AI]';
   
-  const id = agentId.toLowerCase();
   if (id.includes('openai') || id.includes('gpt')) return '[OpenAI]';
   if (id.includes('anthropic') || id.includes('claude')) return '[Anthropic]';
   if (id.includes('google') || id.includes('gemini')) return '[Google]';
@@ -418,6 +441,7 @@ export function closeModal() {
     document.body.style.overflow = ''; // Restore scrolling
   }
   currentSentenceId = null;
+  factsData.clear();
 }
 
 /**
@@ -468,18 +492,7 @@ function getTierBadge(tier) {
   return `<span class="ts-tier-badge ts-tier-${tier}">${label}</span>`;
 }
 
-/**
- * Escape HTML to prevent XSS
- * @param {string} text - Text to escape
- * @returns {string} Escaped HTML
- */
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
+ 
 // Register message handlers
 registerHandler(MessageType.OPEN_MODAL, async (payload) => {
   const { sentenceId, sentenceText, facts } = payload;

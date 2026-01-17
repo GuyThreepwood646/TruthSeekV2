@@ -5,7 +5,6 @@
 
 import { MessageType } from '../shared/message-types.js';
 import { createMessage } from '../shared/message-utils.js';
-import { getXPath } from './extractor.js';
 
 /**
  * Highlight state for each sentence
@@ -113,7 +112,7 @@ export function updateHighlight(sentenceId, status) {
   
   if (!highlight) {
     console.warn(`No highlight found for sentence: ${sentenceId}`);
-    return;
+    return false;
   }
   
   // Remove old status class
@@ -121,11 +120,13 @@ export function updateHighlight(sentenceId, status) {
   
   // Add new status class
   highlight.element.classList.add(status);
+  highlight.element.setAttribute('data-truthseek-status', status);
   
   // Update stored status
   highlight.status = status;
   
   console.log(`Updated highlight ${sentenceId} to status: ${status}`);
+  return true;
 }
 
 /**
@@ -172,14 +173,6 @@ export function clearAllHighlights() {
   }
   
   console.log('Cleared all highlights');
-}
-
-/**
- * Get all active highlights
- * @returns {Map<string, HighlightState>}
- */
-export function getActiveHighlights() {
-  return activeHighlights;
 }
 
 /**
@@ -298,9 +291,11 @@ function wrapSentenceInElement(parentElement, sentenceText, wrapper) {
     for (let i = 0; i < parentText.length; i++) {
       const char = parentText[i];
       const prevChar = i > 0 ? parentText[i - 1] : '';
+      const isWhitespace = /\s/.test(char);
+      const prevIsWhitespace = i > 0 && /\s/.test(prevChar);
       
       // Skip collapsed whitespace in normalized text
-      if (char === ' ' && prevChar === ' ') {
+      if (isWhitespace && prevIsWhitespace) {
         continue;
       }
       
@@ -380,12 +375,6 @@ function wrapSentenceInElement(parentElement, sentenceText, wrapper) {
  */
 function wrapRangeManually(range, wrapper) {
   try {
-    // Save range boundaries before modification
-    const startContainer = range.startContainer;
-    const startOffset = range.startOffset;
-    const endContainer = range.endContainer;
-    const endOffset = range.endOffset;
-    
     // Extract contents (moves nodes from DOM, preserving structure)
     const contents = range.extractContents();
     
@@ -402,26 +391,6 @@ function wrapRangeManually(range, wrapper) {
     console.warn(`[HIGHLIGHTER] Error manually wrapping range:`, error);
     return false;
   }
-}
-
-/**
- * Wrap a text node with a highlight element
- * @param {Node} textNode - Text node to wrap
- * @param {HTMLElement} wrapper - Wrapper element
- * @private
- */
-function wrapTextNode(textNode, wrapper) {
-  const parent = textNode.parentNode;
-  
-  if (!parent) {
-    throw new Error('Text node has no parent');
-  }
-  
-  // Insert wrapper before text node
-  parent.insertBefore(wrapper, textNode);
-  
-  // Move text node into wrapper
-  wrapper.appendChild(textNode);
 }
 
 /**
@@ -449,106 +418,14 @@ function findNodeByXPath(xpath) {
 }
 
 /**
- * Find a text node by searching for matching text content
- * Fallback when XPath fails due to DOM changes
- * @param {string} text - Text to search for
- * @returns {Node|null}
- * @private
- */
-function findNodeByText(text) {
-  if (!text || text.length < 10) {
-    return null; // Text too short to reliably search
-  }
-  
-  try {
-    // Normalize the search text
-    const normalizedSearch = text.trim().toLowerCase();
-    
-    // Create a TreeWalker to traverse text nodes
-    const walker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode: (node) => {
-          // Skip script, style, and hidden elements
-          const parent = node.parentElement;
-          if (!parent) return NodeFilter.FILTER_REJECT;
-          
-          const tagName = parent.tagName;
-          if (tagName === 'SCRIPT' || tagName === 'STYLE' || tagName === 'NOSCRIPT') {
-            return NodeFilter.FILTER_REJECT;
-          }
-          
-          const style = window.getComputedStyle(parent);
-          if (style.display === 'none' || style.visibility === 'hidden') {
-            return NodeFilter.FILTER_REJECT;
-          }
-          
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      }
-    );
-    
-    // Search for matching text node
-    let currentNode = walker.nextNode();
-    while (currentNode) {
-      const nodeText = currentNode.textContent.trim().toLowerCase();
-      
-      // Check if this node contains the search text
-      if (nodeText.includes(normalizedSearch) || normalizedSearch.includes(nodeText)) {
-        // Additional check: similarity should be high
-        const similarity = calculateTextSimilarity(nodeText, normalizedSearch);
-        if (similarity > 0.8) {
-          return currentNode;
-        }
-      }
-      
-      currentNode = walker.nextNode();
-    }
-    
-    return null;
-    
-  } catch (error) {
-    console.error('Error in findNodeByText:', error);
-    return null;
-  }
-}
-
-/**
- * Calculate simple text similarity (0-1)
- * @param {string} text1 - First text
- * @param {string} text2 - Second text
- * @returns {number} Similarity score
- * @private
- */
-function calculateTextSimilarity(text1, text2) {
-  const shorter = text1.length < text2.length ? text1 : text2;
-  const longer = text1.length < text2.length ? text2 : text1;
-  
-  if (longer.length === 0) return 1.0;
-  
-  // Count matching characters in order
-  let matches = 0;
-  let shorterIndex = 0;
-  
-  for (let i = 0; i < longer.length && shorterIndex < shorter.length; i++) {
-    if (longer[i] === shorter[shorterIndex]) {
-      matches++;
-      shorterIndex++;
-    }
-  }
-  
-  return matches / shorter.length;
-}
-
-/**
  * Handle click on highlighted sentence
  * @param {MouseEvent} event - Click event
  * @private
  */
 function handleHighlightClick(event) {
   // Find if click was on a highlight
-  const highlight = event.target.closest('.truthseek-highlight');
+  const target = event.target instanceof Element ? event.target : null;
+  const highlight = target ? target.closest('.truthseek-highlight') : null;
   
   if (!highlight) {
     return;
@@ -611,60 +488,5 @@ function handleHighlightClick(event) {
     event.preventDefault();
     event.stopPropagation();
   }
-}
-
-/**
- * Batch highlight multiple sentences
- * @param {Array<{sentenceId: string, xpath: string, status: string}>} sentences
- */
-export function batchHighlight(sentences) {
-  console.log(`Batch highlighting ${sentences.length} sentences`);
-  
-  // Use requestAnimationFrame to avoid blocking the UI
-  let index = 0;
-  
-  function highlightNext() {
-    if (index >= sentences.length) {
-      console.log('Batch highlighting complete');
-      return;
-    }
-    
-    const { sentenceId, xpath, status } = sentences[index];
-    highlightSentence(sentenceId, xpath, status);
-    
-    index++;
-    
-    // Process next batch
-    if (index % 10 === 0) {
-      // Every 10 highlights, yield to browser
-      requestAnimationFrame(highlightNext);
-    } else {
-      highlightNext();
-    }
-  }
-  
-  requestAnimationFrame(highlightNext);
-}
-
-/**
- * Get highlight statistics
- * @returns {Object} Statistics about current highlights
- */
-export function getHighlightStats() {
-  const stats = {
-    total: activeHighlights.size,
-    processing: 0,
-    true: 0,
-    false: 0,
-    unverified: 0
-  };
-  
-  for (const highlight of activeHighlights.values()) {
-    if (stats.hasOwnProperty(highlight.status)) {
-      stats[highlight.status]++;
-    }
-  }
-  
-  return stats;
 }
 

@@ -3,7 +3,7 @@
  * Coordinates the complete fact-checking workflow
  */
 
-import { sendToTab, broadcast } from './messaging.js';
+import { sendToTab, broadcast, sendToPopup } from './messaging.js';
 import { MessageType } from '../shared/message-types.js';
 import { extractFromAllAgents, loadAgentInstances } from './extraction-orchestrator.js';
 import { deduplicate } from './deduplication.js';
@@ -74,35 +74,19 @@ export async function start(tabId) {
     // STEP 1: Extract page content
     updateProgress(tabId, 'Extracting page content...', 5);
     
-    const contentResponse = await sendToTab(tabId, {
-      type: MessageType.GET_PAGE_CONTENT,
-      payload: {}
-    });
+    const content = await fetchAllContentBatches(tabId);
     
-    // Validate response
-    if (!contentResponse) {
-      throw new Error('No response from content script');
-    }
-    
-    // Handle different response formats
-    let content;
-    if (contentResponse.success && contentResponse.data) {
-      content = contentResponse.data;
-    } else if (contentResponse.data) {
-      content = contentResponse.data;
-    } else if (contentResponse.sentences) {
-      content = contentResponse;
-    } else {
-      console.error('Unexpected response format:', contentResponse);
-      throw new Error('Invalid content format received from page');
-    }
-    
-    if (!content.sentences || !Array.isArray(content.sentences)) {
+    if (!content || !content.sentences || !Array.isArray(content.sentences)) {
       console.error('Content missing sentences array:', content);
       throw new Error('Invalid content format: missing sentences array');
     }
     
     console.log(`✓ Extracted ${content.sentences.length} sentences from page`);
+    
+    if (content.sentences.length === 0) {
+      await completeWithNoFacts(tabId, 'No readable sentences found. Try another page or reload and run again.');
+      return;
+    }
     
     if (cancellationRequested) {
       handleCancellation(tabId);
@@ -191,7 +175,7 @@ export async function start(tabId) {
     // STEP 5: Validate facts
     updateProgress(tabId, 'Validating facts...', 35);
     
-    const validationResult = validateFacts(categorizedFacts);
+    const validationResult = validateFacts(categorizedFacts, content.sentences);
     
     if (!validationResult || !validationResult.validFacts || !Array.isArray(validationResult.validFacts)) {
       console.error('Fact validation returned invalid result:', validationResult);
@@ -268,10 +252,15 @@ export async function start(tabId) {
     
     const results = [];
     const verificationResults = {};
+    const pageMetadata = content.metadata || null;
+    const factsForVerification = validFacts.map(fact => ({
+      ...fact,
+      pageMetadata
+    }));
     
     try {
       // Verify all facts in parallel (verification-orchestrator handles batching)
-      const rawResults = await verifyAllFacts(validFacts, agents, tabId);
+      const rawResults = await verifyAllFacts(factsForVerification, agents, tabId);
       
       if (cancellationRequested) {
         handleCancellation(tabId);
@@ -291,7 +280,7 @@ export async function start(tabId) {
           continue;
         }
         
-        const fact = validFacts.find(f => f.id === factResult.factId);
+        const fact = factsForVerification.find(f => f.id === factResult.factId);
         if (!fact) {
           console.warn('Could not find fact for result:', factResult.factId);
           continue;
@@ -319,13 +308,17 @@ export async function start(tabId) {
         results.push(aggregated);
         verificationResults[fact.id] = aggregated;
         
+        const sentence = content.sentences.find(s => s.id === fact.sentenceId);
+        
         // Update highlight color - wrap in try/catch as tab may be closed
         try {
           await sendToTab(tabId, {
             type: MessageType.UPDATE_HIGHLIGHT_COLOR,
             payload: {
               sentenceId: fact.sentenceId,
-              status: aggregated.aggregateVerdict.toLowerCase()
+              status: aggregated.aggregateVerdict.toLowerCase(),
+              xpath: sentence?.xpath || null,
+              text: sentence?.text || null
             }
           }, { silent: true });
         } catch (tabError) {
@@ -418,12 +411,136 @@ export async function start(tabId) {
 }
 
 /**
+ * Fetch all content batches from content script
+ * @param {number} tabId - Tab ID to extract from
+ * @returns {Promise<ExtractedContent>}
+ * @private
+ */
+async function fetchAllContentBatches(tabId) {
+  const combined = {
+    sentences: [],
+    truncated: false,
+    totalCharacters: 0,
+    metadata: null
+  };
+  
+  let batchIndex = 0;
+  let hasMore = true;
+  
+  while (hasMore) {
+    const contentResponse = await sendToTab(tabId, {
+      type: MessageType.GET_PAGE_CONTENT,
+      payload: { batchIndex }
+    });
+    
+    if (!contentResponse) {
+      throw new Error('No response from content script');
+    }
+    
+    const content = normalizeContentResponse(contentResponse);
+    if (!content || !content.sentences || !Array.isArray(content.sentences)) {
+      console.error('Invalid content format received from page:', contentResponse);
+      throw new Error('Invalid content format received from page');
+    }
+    
+    combined.sentences.push(...content.sentences);
+    combined.totalCharacters = content.totalCharacters || combined.totalCharacters;
+    combined.truncated = false;
+    
+    if (!combined.metadata && content.metadata) {
+      combined.metadata = content.metadata;
+    }
+    
+    hasMore = !!content.hasMoreBatches;
+    batchIndex = content.batchIndex + 1;
+    
+    if (cancellationRequested) {
+      break;
+    }
+  }
+  
+  return combined;
+}
+
+/**
+ * Normalize content response structure
+ * @param {object} contentResponse - Raw response
+ * @returns {object}
+ * @private
+ */
+function normalizeContentResponse(contentResponse) {
+  if (contentResponse.success && contentResponse.data) {
+    return contentResponse.data;
+  }
+  if (contentResponse.data) {
+    return contentResponse.data;
+  }
+  if (contentResponse.sentences) {
+    return contentResponse;
+  }
+  return null;
+}
+
+/**
  * Cancel ongoing fact-check
  * @returns {void}
  */
 export function cancel() {
   console.log('[TruthSeek] Cancellation requested');
   cancellationRequested = true;
+}
+
+/**
+ * Reset state for a tab (e.g., navigation/refresh)
+ * @param {number} tabId - Tab ID
+ * @param {string} reason - Reset reason
+ * @returns {Promise<void>}
+ */
+export async function resetForTab(tabId, reason = 'Page refreshed') {
+  if (!tabId || state.currentTabId !== tabId) {
+    return;
+  }
+  
+  console.log(`[TruthSeek] Resetting state for tab ${tabId}: ${reason}`);
+  cancellationRequested = true;
+  
+  state = {
+    status: 'IDLE',
+    currentStep: reason,
+    totalFacts: null,
+    processedFacts: null,
+    results: null,
+    startedAt: null,
+    completedAt: Date.now(),
+    currentTabId: null
+  };
+  
+  await persistState();
+  broadcastState();
+}
+
+/**
+ * Reset state regardless of tab (stale run recovery)
+ * @param {string} reason - Reset reason
+ * @returns {Promise<void>}
+ */
+export async function resetState(reason = 'Session reset') {
+  console.log(`[TruthSeek] Resetting state: ${reason}`);
+  cancellationRequested = true;
+  
+  state = {
+    status: 'IDLE',
+    currentStep: reason,
+    totalFacts: null,
+    processedFacts: null,
+    results: null,
+    startedAt: null,
+    completedAt: Date.now(),
+    currentTabId: null
+  };
+  
+  await persistState();
+  broadcastState();
 }
 
 /**
@@ -457,10 +574,11 @@ async function handleCancellation(tabId) {
  * @param {number} tabId - Tab ID
  * @private
  */
-async function completeWithNoFacts(tabId) {
+async function completeWithNoFacts(tabId, message = 'No verifiable facts found on this page') {
   console.log('[TruthSeek] No verifiable facts found');
   
   state.status = 'COMPLETE';
+  state.currentStep = message;
   state.results = [];
   state.completedAt = Date.now();
   await persistState();
@@ -534,10 +652,13 @@ async function persistState() {
  * @private
  */
 function broadcastState() {
-  broadcast({
+  const message = {
     type: MessageType.STATE_UPDATE,
     payload: state
-  });
+  };
+  
+  broadcast(message);
+  sendToPopup(message).catch(() => {});
 }
 
 /**

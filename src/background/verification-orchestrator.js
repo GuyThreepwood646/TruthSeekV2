@@ -140,6 +140,9 @@ async function verifyFactWithAllAgents(fact, agents, tabId) {
       
       agentResults.push({
         agentId: agent.config.id,
+        providerId: providerInfo.id,
+        providerName: providerInfo.displayName,
+        modelDisplayName: providerInfo.modelDisplayName,
         verdict: verificationResult.verdict,
         confidence: verificationResult.confidence,
         confidenceCategory: verificationResult.confidenceCategory || categorizeConfidence(verificationResult.confidence),
@@ -161,6 +164,9 @@ async function verifyFactWithAllAgents(fact, agents, tabId) {
       
       agentResults.push({
         agentId: agent.config.id,
+        providerId: providerInfo.id,
+        providerName: providerInfo.displayName,
+        modelDisplayName: providerInfo.modelDisplayName,
         verdict: 'UNVERIFIED',
         confidence: 0,
         confidenceCategory: 'very-low',

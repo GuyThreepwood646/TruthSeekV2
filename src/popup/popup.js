@@ -50,6 +50,7 @@ async function initialize() {
 
   // Load state from storage
   await loadState();
+  await refreshStateFromBackground();
 
   // Set up event listeners
   addAgentBtn.addEventListener('click', handleAddAgent);
@@ -68,16 +69,33 @@ async function initialize() {
 }
 
 /**
+ * Refresh state from background service worker
+ */
+async function refreshStateFromBackground() {
+  try {
+    const latestState = await sendToBackground(MessageType.GET_STATE, {});
+    if (latestState) {
+      extensionState = latestState;
+    }
+  } catch (error) {
+    console.warn('Failed to refresh state from background:', error.message);
+  }
+}
+
+/**
  * Load state from chrome.storage
  */
 async function loadState() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['agents', 'state'], (result) => {
+    chrome.storage.local.get(['agents', 'extensionState', 'state'], (result) => {
       if (result.agents) {
         agents = result.agents;
       }
-      if (result.state) {
+      if (result.extensionState) {
+        extensionState = result.extensionState;
+      } else if (result.state) {
         extensionState = result.state;
+        chrome.storage.local.set({ extensionState: result.state });
       }
       resolve();
     });
@@ -327,7 +345,7 @@ function updateControls() {
     statusMessage.textContent = extensionState.currentStep || 'Processing...';
     statusMessage.style.color = '#667eea';
   } else if (extensionState.status === 'COMPLETE') {
-    statusMessage.textContent = 'Fact-checking complete';
+    statusMessage.textContent = extensionState.currentStep || 'Fact-checking complete';
     statusMessage.style.color = '#28a745';
   } else if (extensionState.status === 'CANCELLED') {
     statusMessage.textContent = 'Fact-checking cancelled';

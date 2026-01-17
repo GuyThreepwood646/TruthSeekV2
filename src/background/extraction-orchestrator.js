@@ -148,7 +148,8 @@ export async function extractFromAllAgents(content, agents, tabId) {
  * @private
  */
 async function extractWithTimeout(agent, content, categories) {
-  const MAX_SENTENCES_PER_BATCH = 20; // Limit sentences per request to prevent AI truncation
+  const MAX_SENTENCES_PER_BATCH = 60; // Higher cap to reduce API calls
+  const MAX_CHARS_PER_BATCH = 12000; // Approx input budget per request
   
   console.log(`[Extraction] Agent ${agent.config.id}: Processing ${content.sentences.length} sentences`);
   
@@ -166,20 +167,10 @@ async function extractWithTimeout(agent, content, categories) {
   }
   
   // For large content, process in batches
-  const numBatches = Math.ceil(content.sentences.length / MAX_SENTENCES_PER_BATCH);
-  console.log(`[Extraction] Processing ${content.sentences.length} sentences in ${numBatches} batches of ${MAX_SENTENCES_PER_BATCH}`);
+  const batches = buildSentenceBatches(content.sentences, MAX_SENTENCES_PER_BATCH, MAX_CHARS_PER_BATCH);
+  console.log(`[Extraction] Processing ${content.sentences.length} sentences in ${batches.length} batches (max ${MAX_SENTENCES_PER_BATCH} sentences, ${MAX_CHARS_PER_BATCH} chars)`);
   
   const allFacts = [];
-  const batches = [];
-  
-  for (let i = 0; i < content.sentences.length; i += MAX_SENTENCES_PER_BATCH) {
-    batches.push({
-      sentences: content.sentences.slice(i, i + MAX_SENTENCES_PER_BATCH),
-      truncated: false,
-      totalCharacters: content.sentences.slice(i, i + MAX_SENTENCES_PER_BATCH)
-        .reduce((sum, s) => sum + s.text.length, 0)
-    });
-  }
   
   console.log(`Processing ${batches.length} batches`);
   
@@ -217,6 +208,43 @@ async function extractWithTimeout(agent, content, categories) {
     tokensUsed: 0, // Approximate, would need to sum from batches
     timestamp: Date.now()
   };
+}
+
+function buildSentenceBatches(sentences, maxSentences, maxChars) {
+  const batches = [];
+  let current = [];
+  let currentChars = 0;
+  
+  for (const sentence of sentences) {
+    const textLength = sentence?.text?.length || 0;
+    const nextChars = currentChars + textLength;
+    
+    if (
+      current.length > 0 &&
+      (current.length >= maxSentences || nextChars > maxChars)
+    ) {
+      batches.push({
+        sentences: current,
+        truncated: false,
+        totalCharacters: currentChars
+      });
+      current = [];
+      currentChars = 0;
+    }
+    
+    current.push(sentence);
+    currentChars += textLength;
+  }
+  
+  if (current.length > 0) {
+    batches.push({
+      sentences: current,
+      truncated: false,
+      totalCharacters: currentChars
+    });
+  }
+  
+  return batches;
 }
 
 /**

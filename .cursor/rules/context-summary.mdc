@@ -1,0 +1,20 @@
+---
+name: context-summary
+description: This rule guides the AI to follow the project's specific layout and business logic defined in the coding standards document. It must be applied in any situation where code is generated or modified to ensure consistency with project specifications.
+globs:
+  alwaysApply: true
+---
+
+# Project Layout and Business Logic Standards
+
+The AI agent must adhere strictly to the project structure, layout, and business logic guidelines detailed in the local documentation file `LocalProjectFiles/TruthSeekContextSummary.md`.
+
+## Guidelines for the AI Agent
+
+*   **Consult the standards**: Before writing any new code or modifying existing logic, the agent must reference the `LocalProjectFiles/TruthSeekContextSummary.md` file to understand the required patterns and structure.
+*   **Enforce layout**: All new files and directories should follow the hierarchy and naming conventions specified in the documentation.
+*   **Implement business logic**: The implementation of features must align with the business logic flow and rules described in the referenced file.
+*   **Prioritize consistency**: The primary goal is to ensure the generated code is consistent with the established project standards, improving collaboration and maintainability.
+*   **Update this document**: After making code changes, review and determine if those changes impact any items detailed in the local documentation file `LocalProjectFiles/TruthSeekContextSummary.md`, if they do, update the documentation with the new information.
+
+@LocalProjectFiles/TruthSeekContextSummary.md

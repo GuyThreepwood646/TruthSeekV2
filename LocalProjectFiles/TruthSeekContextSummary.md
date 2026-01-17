@@ -2,7 +2,7 @@
 
 > **Purpose:** This document provides essential context for AI agents working on this codebase. It prioritizes accuracy, completeness, and identification of known issues to prevent bugs, regressions, and code bloat.
 >
-> **Last Updated:** 2026-01-15
+> **Last Updated:** 2026-01-16
 
 ---
 
@@ -59,7 +59,7 @@ src/
       anthropic.js           # Anthropic Claude implementation
       google.js              # Google Gemini implementation
     prompts/
-      extraction.js          # Fact extraction prompts + JSON parsing
+      extraction.js          # Fact extraction prompts + adaptive prompt selection + JSON parsing
       verification.js        # Verification prompts with grounding rules
 
   background/
@@ -77,8 +77,9 @@ src/
     content.js               # Content script entry (BUNDLED to dist/content.js)
     extractor.js             # Page content extraction with XPath tracking
     highlighter.js           # Real-time sentence highlighting
-    modal.js                 # Fact detail popup
+    modal.js                 # Fact detail popup (uses dom-utils for security)
     progress-popup.js        # Progress display during fact-check
+    dom-utils.js             # Shared DOM utilities (escapeHtml, sanitizeUrl, clampPercent)
 
   popup/
     popup.js                 # Popup UI logic
@@ -101,13 +102,13 @@ src/
 
 The `orchestrator.js:start(tabId)` function executes this pipeline:
 
-1. **Extract Page Content** - Content script extracts sentences with XPath
+1. **Extract Page Content** - Content script extracts sentences with XPath and deterministic page metadata
 2. **Extract Facts (Parallel)** - All agents extract facts simultaneously (60s timeout)
 3. **Deduplicate** - Remove exact/semantic duplicates using agent quality ranking
 4. **Validate Categories** - Ensure categories match taxonomy, correct if needed
 5. **Validate Facts** - Filter invalid, too short, XSS attempts, non-verifiable claims
 6. **Highlight Sentences** - Mark extracted sentences yellow (processing)
-7. **Verify Facts (Parallel)** - All agents verify each fact via web search (90s timeout, batched 5 at a time)
+7. **Verify Facts (Parallel)** - All agents verify each fact via web search (90s timeout, batched 5 at a time) using page metadata as context
 8. **Aggregate & Display** - Majority voting, update highlight colors, show summary
 
 **Cancellation:** Supported at any step via `cancellationRequested` flag.
@@ -146,6 +147,22 @@ class CustomProvider extends AIProvider {
 }
 ```
 
+### PageMetadata (from extractor)
+```javascript
+{
+  title: 'Article headline',
+  description: 'Meta description',
+  canonicalUrl: 'https://example.com/article',
+  siteName: 'Publisher name',
+  publishedTime: '2025-10-30T22:03:51',
+  modifiedTime: '2025-10-30T22:42:00',
+  author: 'Author name',
+  section: 'Section name',
+  keywords: 'comma,separated,keywords',
+  language: 'en'
+}
+```
+
 ### Fact (after extraction)
 ```javascript
 {
@@ -156,7 +173,8 @@ class CustomProvider extends AIProvider {
   sentenceId: 's-0001',
   agentId: 'openai-gpt4-timestamp',
   provenance: ['agent1', 'agent2'],  // Which agents found this
-  agentRank: 95
+  agentRank: 95,
+  pageMetadata: { /* optional PageMetadata for verification context */ }
 }
 ```
 
@@ -213,9 +231,8 @@ From `src/config/categories.js`:
 ### Critical Issues
 
 1. **Web Search is Simulated (OpenAI Provider)**
-   - Location: `src/ai/providers/openai.js:297-313`
+   - Location: `src/ai/providers/openai.js`
    - The `performWebSearches()` method uses OpenAI function calling which does NOT actually search the web
-   - Comment says "In production, this would integrate with actual search APIs"
    - **Impact:** Verification results may be hallucinated, not grounded in real sources
    - **Fix Required:** Integrate actual search API (Bing, Google Custom Search, etc.)
 
@@ -229,46 +246,34 @@ From `src/config/categories.js`:
    - Location: `src/content/extractor.js:22`
    - Waits 2 seconds after page load for dynamic content
    - May be insufficient for SPAs, excessive for static pages
-   - **Impact:** Either misses dynamic content or wastes time
 
 ### Moderate Issues
 
-4. **Deduplication Success Check Bug**
-   - Location: `src/background/deduplication.js:20-23`
-   - Checks `result.success` but extraction orchestrator does not set this field
-   - Facts may be silently dropped if `success` is undefined
-
-5. **Inconsistent Response Format Handling**
-   - Location: `src/background/orchestrator.js:88-98`
-   - Multiple fallback attempts to parse content response
-   - Indicates unstable contract between content script and background
-
-6. **No Rate Limit Handling Across Providers**
+4. **No Rate Limit Handling Across Providers**
    - Only OpenAI has basic rate limiting (1s delay between requests)
    - Anthropic and Google providers may hit rate limits without recovery
-   - Location: `src/ai/providers/openai.js:466-471`
 
-7. **Highlight Click Handler Global**
+5. **Highlight Click Handler Global**
    - Location: `src/content/highlighter.js:28`
    - Uses `true` capture phase for click events on entire document
    - May interfere with page's own click handlers
 
 ### Minor Issues
 
-8. **Test Coverage Incomplete**
+6. **Test Coverage Incomplete**
    - Only `extraction.test.js` exists
    - No tests for: verification, consensus, AI providers, messaging
-   - Code coverage requirements exist but likely not met
 
-9. **Console Logging in Production**
+7. **Console Logging in Production**
    - Extensive `console.log()` throughout codebase
    - No log level configuration or production stripping
-   - Locations: All files in `src/background/` and `src/content/`
 
-10. **Modal XSS Protection Incomplete**
-    - `escapeHtml()` in modal.js is correct but relies on `textContent`
-    - Source URLs rendered with `href="${escapeHtml(source.url)}"` - potential for `javascript:` URLs
-    - Location: `src/content/modal.js:219`
+### Recently Fixed Issues
+
+- **Deduplication null handling** - Now handles missing `searchableText`/`originalText` gracefully with fallback keys
+- **Modal XSS via URLs** - Now uses `sanitizeUrl()` from `dom-utils.js` to block `javascript:` URLs
+- **Popup state sync** - Now fetches fresh state from background on open via `GET_STATE` message
+- **Extraction prompt efficiency** - Adaptive prompts reduce token usage for large pages (>24 sentences or >6000 chars)
 
 ---
 
@@ -374,6 +379,12 @@ npm run test:watch # Watch mode
 - Logic in `src/content/highlighter.js`
 - Must handle XPath failures gracefully with text-based fallback
 
+### When Rendering Dynamic Content in Modal/UI
+- ALWAYS use `escapeHtml()` for text content
+- ALWAYS use `sanitizeUrl()` for href attributes
+- ALWAYS use `clampPercent()` for percentage values in styles
+- Import from `src/content/dom-utils.js`
+
 ---
 
 ## State Management
@@ -437,33 +448,59 @@ Stored in `chrome.storage.local` under key `verificationResults`:
 
 1. **API Keys:** Encrypted with AES-GCM before storage
 2. **CSP:** `script-src 'self'; object-src 'none'`
-3. **XSS Prevention:** Input sanitization, HTML escaping in modal
-4. **Permissions:** `activeTab`, `storage`, `scripting`, `<all_urls>`
-5. **No Telemetry:** No data sent to TruthSeek servers
+3. **XSS Prevention:** Input sanitization via `dom-utils.js` utilities
+4. **URL Sanitization:** `sanitizeUrl()` blocks non-http(s) protocols including `javascript:`
+5. **Permissions:** `activeTab`, `storage`, `scripting`, `<all_urls>`
+6. **No Telemetry:** No data sent to TruthSeek servers
 
 ---
 
-## Current Development Status
+## Key Utility Functions
 
-**Sprint 1 - Foundation & AI Integration** (In Progress)
+### DOM Utilities (`src/content/dom-utils.js`)
 
-Completed:
-- Extension manifest and structure
-- All AI provider integrations
-- Message routing system
-- Content extraction with XPath
-- Fact deduplication and validation
-- Multi-agent verification with consensus
-- UI components (popup, modal, highlighter, progress)
+**IMPORTANT:** Always use these utilities when rendering user-controlled or AI-generated content in the modal or any HTML context.
 
-In Progress:
-- Inter-component messaging refinements
+```javascript
+import { escapeHtml, sanitizeUrl, clampPercent } from './dom-utils.js';
 
-Not Yet Implemented:
-- Actual web search integration (using simulated search)
-- Re-verification on disagreement
-- User configurable settings (sentence limit, timeouts)
-- Comprehensive test coverage
+// Escape HTML entities to prevent XSS
+escapeHtml(text)              // Returns safe string, handles null/undefined
+
+// Sanitize URLs for href attributes - blocks javascript: and other dangerous protocols
+sanitizeUrl(url)              // Returns safe URL or '#' if invalid
+
+// Clamp numeric values to 0-100 for percentage display
+clampPercent(value)           // Returns rounded integer 0-100, handles NaN/Infinity
+```
+
+### Extraction Prompt Utilities (`src/ai/prompts/extraction.js`)
+
+```javascript
+import {
+  buildExtractionPrompt,           // Full prompt with examples
+  buildAdaptiveExtractionPrompt,   // Auto-selects full or simplified based on content size
+  buildSimplifiedExtractionPrompt, // Minimal prompt for large pages
+  parseExtractionResponse,         // Parses AI response with error recovery
+  cleanJsonResponse                // Strips markdown code blocks from response
+} from '../ai/prompts/extraction.js';
+
+// Adaptive prompt selection thresholds:
+// - MAX_FULL_PROMPT_SENTENCES: 24
+// - MAX_FULL_PROMPT_CHARACTERS: 6000
+// Pages exceeding these use simplified prompts to reduce token costs
+```
+
+### Deduplication (`src/background/deduplication.js`)
+
+```javascript
+import { deduplicate, getDeduplicationStats } from './deduplication.js';
+
+// Facts with missing text fields are handled gracefully:
+// - Falls back to originalText if searchableText is missing
+// - Uses unique key `missing-text-{index}` if both are missing
+// - Never crashes on null/undefined text values
+```
 
 ---
 

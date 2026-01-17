@@ -95,11 +95,7 @@ async function ensureContentScriptInjected(tabId) {
     const tab = await chrome.tabs.get(tabId);
     
     // Check if URL is restricted (chrome://, chrome-extension://, etc.)
-    if (!tab.url || 
-        tab.url.startsWith('chrome://') || 
-        tab.url.startsWith('chrome-extension://') ||
-        tab.url.startsWith('about:') ||
-        tab.url.startsWith('edge://')) {
+    if (!tab.url || !/^https?:\/\//.test(tab.url)) {
       console.warn('Cannot inject content script into restricted URL:', tab.url);
       return false;
     }
@@ -147,6 +143,14 @@ export async function sendToTab(tabId, message, options = {}) {
   const { silent = false } = options;
   
   try {
+    if (!message || typeof message !== 'object' || !message.type) {
+      throw new Error('Invalid message: missing type');
+    }
+    
+    const outboundMessage = isValidMessage(message)
+      ? message
+      : createMessage(message.type, message.payload, tabId);
+    
     // Check if tab still exists before attempting to send message
     try {
       await chrome.tabs.get(tabId);
@@ -164,7 +168,7 @@ export async function sendToTab(tabId, message, options = {}) {
       throw new Error('Cannot access this page. TruthSeek only works on regular web pages (http:// or https://)');
     }
     
-    const response = await chrome.tabs.sendMessage(tabId, message);
+    const response = await chrome.tabs.sendMessage(tabId, outboundMessage);
     return response;
   } catch (error) {
     // Check if it's a "message channel closed" error (tab closed/navigated)
@@ -204,8 +208,11 @@ export async function broadcast(message) {
     
     for (const tab of tabs) {
       if (tab.id) {
+        if (!tab.url || !/^https?:\/\//.test(tab.url)) {
+          continue;
+        }
         try {
-          await sendToTab(tab.id, message);
+          await sendToTab(tab.id, message, { silent: true });
         } catch (error) {
           // Tab may not have content script - continue silently
           continue;
@@ -224,7 +231,15 @@ export async function broadcast(message) {
  */
 export async function sendToPopup(message) {
   try {
-    const response = await chrome.runtime.sendMessage(message);
+    if (!message || typeof message !== 'object' || !message.type) {
+      throw new Error('Invalid message: missing type');
+    }
+    
+    const outboundMessage = isValidMessage(message)
+      ? message
+      : createMessage(message.type, message.payload, message.tabId ?? null);
+    
+    const response = await chrome.runtime.sendMessage(outboundMessage);
     return response;
   } catch (error) {
     // Popup may not be open - this is not an error

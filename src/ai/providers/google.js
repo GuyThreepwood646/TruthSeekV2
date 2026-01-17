@@ -6,7 +6,7 @@
 import { AIProvider, AIProviderError, AIProviderException } from '../provider-interface.js';
 import { encrypt, decrypt } from '../../utils/crypto.js';
 import { getModelMetadata } from '../../config/model-metadata.js';
-import { parseExtractionResponse, buildExtractionPrompt, cleanJsonResponse } from '../prompts/extraction.js';
+import { parseExtractionResponse, buildAdaptiveExtractionPrompt, cleanJsonResponse } from '../prompts/extraction.js';
 import { buildVerificationPrompt, buildSearchQuery, buildGroundedVerificationPrompt } from '../prompts/verification.js';
 import { calculateConfidence } from '../../background/confidence-scoring.js';
 import { checkKnowledgeCutoff } from '../../background/verification-orchestrator.js';
@@ -102,7 +102,8 @@ export class GoogleProvider extends AIProvider {
         generationConfig: {
           temperature: 0.1, // Low temperature for consistency
           candidateCount: 1,
-          maxOutputTokens: 8192
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json'
         }
       };
 
@@ -123,8 +124,18 @@ export class GoogleProvider extends AIProvider {
         throw new Error('No content in API response');
       }
       
+      if (!response || !response.candidates || !response.candidates[0] ||
+          !response.candidates[0].content || !response.candidates[0].content.parts ||
+          !response.candidates[0].content.parts[0]) {
+        console.error('Invalid verification response structure:', response);
+        throw new Error('Invalid verification response structure from Google API');
+      }
+      
       // Parse response
-      const content = response.candidates[0].content.parts[0].text;
+      const candidate = response?.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+      const textPart = parts.find(part => typeof part?.text === 'string');
+      const content = textPart?.text;
       
       if (!content || typeof content !== 'string') {
         console.error('Invalid content type:', typeof content);
@@ -187,7 +198,8 @@ export class GoogleProvider extends AIProvider {
         fact,
         category,
         currentDate,
-        modelCutoffDate: providerInfo.knowledgeCutoff
+        modelCutoffDate: providerInfo.knowledgeCutoff,
+        pageMetadata: fact.pageMetadata || null
       });
       
       // Call Gemini for verification with Google Search grounding
@@ -228,14 +240,49 @@ export class GoogleProvider extends AIProvider {
         this.tokenUsage.total = this.tokenUsage.input + this.tokenUsage.output;
       }
 
-      // Parse response
-      const content = response.candidates[0].content.parts[0].text;
+      const candidate = response?.candidates?.[0];
+      const content = extractCandidateText(candidate);
       
-      // Validate response structure
-      if (!content || typeof content !== 'string') {
-        console.error('Invalid verification response content:', content);
-        throw new Error('Invalid response content from Google API');
+      if (!content) {
+        const groundingMetadata = candidate?.groundingMetadata || null;
+        const groundedSources = await this.extractGroundingSources(groundingMetadata);
+        const finishReason = candidate?.finishReason || 'unknown';
+        
+        console.warn('[Google] No verification text returned:', {
+          finishReason,
+          hasGrounding: !!groundingMetadata,
+          responseId: response?.responseId || null
+        });
+        
+        return {
+          factId: fact.id,
+          agentId: this.config.id,
+          verdict: 'UNVERIFIED',
+          confidence: 0,
+          confidenceCategory: 'very-low',
+          reasoning: `No verification text returned by Google model (finishReason: ${finishReason})`,
+          sources: [...groundedSources.supporting, ...groundedSources.refuting],
+          knowledgeCutoffMessage: null,
+          tokensUsed: response.usageMetadata?.totalTokenCount || 0,
+          timestamp: Date.now()
+        };
       }
+
+function extractCandidateText(candidate) {
+  if (!candidate || !candidate.content || !Array.isArray(candidate.content.parts)) {
+    return null;
+  }
+  
+  const textParts = candidate.content.parts
+    .map(part => part?.text)
+    .filter(text => typeof text === 'string' && text.trim().length > 0);
+  
+  if (textParts.length === 0) {
+    return null;
+  }
+  
+  return textParts.join('\n').trim();
+}
       
       // Clean and parse JSON response
       const cleanedContent = cleanJsonResponse(content);
@@ -266,7 +313,7 @@ export class GoogleProvider extends AIProvider {
       }
       
       // Extract grounding metadata if available
-      const groundingMetadata = response.candidates[0].groundingMetadata;
+      const groundingMetadata = candidate?.groundingMetadata;
       if (groundingMetadata && groundingMetadata.webSearchQueries) {
         console.log('[Google] Search queries used:', groundingMetadata.webSearchQueries);
       }
@@ -697,7 +744,7 @@ export class GoogleProvider extends AIProvider {
    * @private
    */
   buildExtractionPrompt(content, categories) {
-    return buildExtractionPrompt(content, categories);
+    return buildAdaptiveExtractionPrompt(content, categories);
   }
 
   /**

@@ -5,6 +5,9 @@
 
 import { CATEGORIES, VALID_CATEGORIES } from '../../config/categories.js';
 
+const MAX_FULL_PROMPT_SENTENCES = 24;
+const MAX_FULL_PROMPT_CHARACTERS = 6000;
+
 /**
  * Build extraction prompt for AI providers
  * @param {ExtractedContent} content - Page content with sentences
@@ -24,9 +27,15 @@ RULES:
 1. Extract ONLY objectively verifiable facts - claims that can be confirmed or refuted with evidence
 2. Include both explicit facts (directly stated) and implicit facts (clearly implied)
 3. EXCLUDE: opinions, predictions, subjective assessments, definitions without factual claims
-4. For each fact, provide:
+4. EXCLUDE: article metadata (bylines, update timestamps, photo captions, share prompts)
+5. If a sentence contains multiple discrete facts, output multiple fact objects
+6. Split appositive or descriptive clauses into separate facts when they state distinct claims
+7. Avoid redundant facts that restate the same claim in different words; keep the most complete version
+8. If a sentence uses vague references (e.g., "the restrictions", "the decision", "it"),
+   use the immediately preceding sentence(s) to make the subject explicit in searchableText
+9. For each fact, provide:
    - originalText: the exact text from the source
-   - searchableText: rephrased as a clear, search-friendly statement
+   - searchableText: rephrased as a clear, search-friendly statement with explicit subject
    - category: one of the defined categories
    - sentenceId: the source sentence ID
 
@@ -68,6 +77,26 @@ Output:
       "searchableText": "Eiffel Tower height 330 meters",
       "category": "STATISTICAL_QUANTITATIVE",
       "sentenceId": "s-0001"
+    }
+  ]
+}
+
+Example 1b - Appositive definition in same sentence:
+Input: [s-0002] "The FDA restricted access to mifepristone, a medication for abortions and miscarriage management."
+Output:
+{
+  "facts": [
+    {
+      "originalText": "The FDA restricted access to mifepristone",
+      "searchableText": "FDA restricted access to mifepristone",
+      "category": "LEGAL_REGULATORY",
+      "sentenceId": "s-0002"
+    },
+    {
+      "originalText": "mifepristone is a medication for abortions and miscarriage management",
+      "searchableText": "mifepristone is a medication for abortions and miscarriage management",
+      "category": "MEDICAL_BIOLOGICAL",
+      "sentenceId": "s-0002"
     }
   ]
 }
@@ -140,6 +169,26 @@ ${content.truncated ? '\n\nNOTE: Content was truncated due to length. Extract fa
 }
 
 /**
+ * Build adaptive extraction prompt to balance accuracy and token use
+ * @param {ExtractedContent} content - Page content
+ * @param {string[]} categories - Valid category names
+ * @returns {{ system: string, user: string }}
+ */
+export function buildAdaptiveExtractionPrompt(content, categories = VALID_CATEGORIES) {
+  const sentences = Array.isArray(content?.sentences) ? content.sentences : [];
+  const sentenceCount = sentences.length;
+  const totalCharacters = Number.isFinite(content?.totalCharacters)
+    ? content.totalCharacters
+    : sentences.reduce((sum, sentence) => sum + (sentence?.text?.length || 0), 0);
+  
+  if (sentenceCount > MAX_FULL_PROMPT_SENTENCES || totalCharacters > MAX_FULL_PROMPT_CHARACTERS) {
+    return buildSimplifiedExtractionPrompt(content, categories);
+  }
+  
+  return buildExtractionPrompt(content, categories);
+}
+
+/**
  * Build simplified extraction prompt for token efficiency
  * (Alternative version with fewer examples for cost-sensitive scenarios)
  * @param {ExtractedContent} content - Page content
@@ -153,6 +202,10 @@ export function buildSimplifiedExtractionPrompt(content, categories = VALID_CATE
 
 Rules:
 - Extract explicit and implicit facts
+- If a sentence contains multiple discrete facts, output multiple fact objects
+- Split appositive/descriptive clauses into separate facts when they state distinct claims
+- Avoid redundant facts that restate the same claim in different words
+- Keep the most complete/descriptive version when choosing between near-duplicates
 - Exclude opinions, predictions, subjective claims
 - Output JSON: {"facts": [{"originalText": "...", "searchableText": "...", "category": "...", "sentenceId": "..."}]}
 
@@ -227,14 +280,10 @@ export function parseExtractionResponse(response) {
     return [];
   }
   
-  // Check if response appears truncated
-  if (isResponseTruncated(response)) {
-    console.warn('Response appears truncated - attempting recovery');
-  }
-  
   try {
     // Clean response - remove markdown code blocks if present
     const cleanedResponse = cleanJsonResponse(response);
+    const truncated = isResponseTruncated(cleanedResponse);
     
     // Try to parse as JSON
     const parsed = JSON.parse(cleanedResponse);
@@ -253,10 +302,17 @@ export function parseExtractionResponse(response) {
       return true;
     });
     
+    if (truncated) {
+      console.debug('Response looked truncated but parsed successfully');
+    }
+    
     console.log(`Parsed ${validFacts.length} valid facts from response`);
     return validFacts;
     
   } catch (error) {
+    if (isResponseTruncated(response)) {
+      console.warn('Response appears truncated - attempting recovery');
+    }
     console.error('Failed to parse extraction response:', error.message);
     
     // Fallback: Try to extract and repair JSON

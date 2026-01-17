@@ -1,0 +1,13 @@
+---
+name: coding-standards
+description: This file contains the project's specific coding standards. The AI should adhere to these standards strictly when generating or modifying code.
+globs:
+  - "**"
+---
+# Project Coding Standards
+
+The official coding standards for this project are detailed in the following local file. The AI must reference this file for all coding operations.
+
+@LocalProjectFiles/CodingStandards.md
+
+---

@@ -38,7 +38,8 @@ initializeModal();
 // Register content extraction handler
 registerHandler(MessageType.GET_PAGE_CONTENT, async (payload) => {
   console.log('Extracting page content...');
-  const content = await extractPageContent();
+  const batchIndex = payload?.batchIndex ?? 0;
+  const content = await extractPageContent(batchIndex);
   console.log(`Extracted ${content.sentences.length} sentences`);
   return content;
 });
@@ -51,19 +52,31 @@ registerHandler(MessageType.HIGHLIGHT_SENTENCE, async (payload) => {
     return { success: false, error: 'Missing sentenceId or xpath' };
   }
   
+  if (!text || typeof text !== 'string' || text.trim().length === 0) {
+    console.error('Invalid HIGHLIGHT_SENTENCE payload (text missing):', payload);
+    return { success: false, error: 'Missing sentence text' };
+  }
+  
   highlightSentence(sentenceId, xpath, status || 'processing', text);
   return { success: true };
 });
 
 registerHandler(MessageType.UPDATE_HIGHLIGHT_COLOR, async (payload) => {
-  const { sentenceId, status } = payload;
+  const { sentenceId, status, xpath, text } = payload;
   
   if (!sentenceId || !status) {
     console.error('Invalid UPDATE_HIGHLIGHT_COLOR payload:', payload);
     return { success: false, error: 'Missing sentenceId or status' };
   }
   
-  updateHighlight(sentenceId, status);
+  const updated = updateHighlight(sentenceId, status);
+  if (!updated && xpath && text) {
+    highlightSentence(sentenceId, xpath, status, text);
+    return { success: true };
+  }
+  if (!updated) {
+    return { success: false, error: 'No existing highlight and missing xpath/text' };
+  }
   return { success: true };
 });
 
@@ -78,7 +91,7 @@ registerHandler(MessageType.UPDATE_PROGRESS, async (payload) => {
 });
 
 registerHandler(MessageType.SHOW_RESULTS, async (payload) => {
-  const { summary } = payload;
+  const summary = payload?.summary || {};
   showResults(summary);
   return { success: true };
 });

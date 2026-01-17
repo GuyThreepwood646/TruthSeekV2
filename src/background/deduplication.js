@@ -77,14 +77,15 @@ export async function deduplicate(rawResults) {
 function groupByExactMatch(facts) {
   const groups = new Map();
   
-  for (const fact of facts) {
-    // Normalize text for comparison
-    const normalized = normalizeText(fact.searchableText);
+  for (let i = 0; i < facts.length; i++) {
+    const fact = facts[i];
+    const normalized = normalizeText(fact.searchableText || fact.originalText || '');
+    const key = normalized || `missing-text-${i}`;
     
-    if (groups.has(normalized)) {
-      groups.get(normalized).push(fact);
+    if (groups.has(key)) {
+      groups.get(key).push(fact);
     } else {
-      groups.set(normalized, [fact]);
+      groups.set(key, [fact]);
     }
   }
   
@@ -97,6 +98,10 @@ function groupByExactMatch(facts) {
  * @returns {string} Normalized text
  */
 function normalizeText(text) {
+  if (!text || typeof text !== 'string') {
+    return '';
+  }
+  
   return text
     .toLowerCase()
     .replace(/[^\w\s]/g, '') // Remove punctuation
@@ -198,9 +203,11 @@ function selectBestVersion(candidates) {
   }
   
   // Tiebreak: prefer longer searchableText (more specific/complete)
-  const byLength = topCandidates.sort((a, b) => 
-    b.searchableText.length - a.searchableText.length
-  );
+  const byLength = topCandidates.sort((a, b) => {
+    const aLength = (a.searchableText || a.originalText || '').length;
+    const bLength = (b.searchableText || b.originalText || '').length;
+    return bLength - aLength;
+  });
   
   return byLength[0];
 }

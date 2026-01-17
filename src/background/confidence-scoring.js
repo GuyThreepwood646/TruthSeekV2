@@ -34,8 +34,11 @@ export function calculateConfidence(
   refutingSources = [],
   hasVerifiedUrls = false
 ) {
+  const normalizedConfidence = Number.isFinite(aiConfidence) ? aiConfidence : 0;
+  const clampedConfidence = Math.max(0, Math.min(1, normalizedConfidence));
+  
   // === TIER 1 FAST-TRACK CHECK ===
-  if (verdict === 'TRUE' && aiConfidence >= 0.8) {
+  if (verdict === 'TRUE' && clampedConfidence >= 0.8) {
     const tier1Supporting = supportingSources.filter(s => s.tier === 1);
     const tier1to3Refuting = refutingSources.filter(s => s.tier <= 3);
     
@@ -57,7 +60,7 @@ export function calculateConfidence(
   let score = 50; // Base score
   
   // Add AI confidence component (0-30 points)
-  score += aiConfidence * 30;
+  score += clampedConfidence * 30;
   
   // Add source evidence component
   const sourceScore = calculateSourceScore(supportingSources, refutingSources);
@@ -130,7 +133,9 @@ export function calculateSimpleConfidence(verdict, aiConfidence, needsWebSearch 
   }
   
   // Base confidence on AI only, with cap at 85 (no external evidence)
-  let score = aiConfidence * NO_EVIDENCE_CAP;
+  const normalizedConfidence = Number.isFinite(aiConfidence) ? aiConfidence : 0;
+  const clampedConfidence = Math.max(0, Math.min(1, normalizedConfidence));
+  let score = clampedConfidence * NO_EVIDENCE_CAP;
   
   // Clamp to 0-85
   score = Math.max(0, Math.min(NO_EVIDENCE_CAP, score));

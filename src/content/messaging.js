@@ -4,7 +4,8 @@
  */
 
 import { MessageType } from '../shared/message-types.js';
-import { createMessage, isValidMessage } from '../shared/message-utils.js';
+import { isValidMessage } from '../shared/message-utils.js';
+export { sendToBackground } from '../shared/message-utils.js';
 
 // Handler registry
 const handlers = new Map();
@@ -58,15 +59,14 @@ async function handleMessage(message, sender, sendResponse) {
       return;
     }
     
-    // Basic validation - just check if it has a type
-    if (!message || typeof message !== 'object' || !message.type) {
+    // Basic validation
+    if (!message || typeof message !== 'object') {
       // Silently ignore invalid messages (may be from other extensions)
       return;
     }
     
-    // Check if it's a valid MessageType
-    if (!Object.values(MessageType).includes(message.type)) {
-      // Not for us, ignore silently
+    if (!isValidMessage(message)) {
+      // Not for us or invalid structure, ignore silently
       return;
     }
     
@@ -88,29 +88,6 @@ async function handleMessage(message, sender, sendResponse) {
   } catch (error) {
     console.error('Error handling message:', message.type, error);
     sendResponse({ error: error.message });
-  }
-}
-
-/**
- * Send message to background script
- * @param {string} type - MessageType enum value
- * @param {any} payload - Message payload
- * @returns {Promise<any>} Response from background
- */
-export async function sendToBackground(type, payload) {
-  const message = createMessage(type, payload);
-  
-  try {
-    const response = await chrome.runtime.sendMessage(message);
-    
-    if (response && response.error) {
-      throw new Error(response.error);
-    }
-    
-    return response?.data;
-  } catch (error) {
-    console.error('Error sending message to background:', error);
-    throw error;
   }
 }
 

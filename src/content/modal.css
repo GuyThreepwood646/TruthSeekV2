@@ -757,6 +757,14 @@
     color: #b0b0b0;
   }
   
+  .ts-fact-reasoning p {
+    color: #e6e6e6;
+  }
+  
+  .ts-sources h4 {
+    color: #f0f0f0;
+  }
+  
   .ts-source-item {
     background: #3a3a3a;
   }

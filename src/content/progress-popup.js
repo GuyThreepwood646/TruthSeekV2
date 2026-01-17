@@ -3,6 +3,10 @@
  * Floating progress indicator during fact extraction and verification
  */
 
+import { sendToBackground } from './messaging.js';
+import { MessageType } from '../shared/message-types.js';
+import { escapeHtml, clampPercent } from './dom-utils.js';
+
 let progressPopup = null;
 let progressState = {
   visible: false,
@@ -25,9 +29,10 @@ export function initializeProgressPopup() {
  * @param {Object} options - Initial options
  */
 export function showProgress(options = {}) {
+  const safeOptions = normalizeObject(options);
   if (progressPopup) {
     // Already showing, just update
-    updateProgress(options);
+    updateProgress(safeOptions);
     return;
   }
   
@@ -37,10 +42,10 @@ export function showProgress(options = {}) {
   
   // Update initial state
   progressState.visible = true;
-  progressState.currentStep = options.currentStep || 'Starting...';
-  progressState.progress = options.progress || 0;
-  progressState.totalFacts = options.totalFacts || 0;
-  progressState.processedFacts = options.processedFacts || 0;
+  progressState.currentStep = safeOptions.currentStep || 'Starting...';
+  progressState.progress = clampPercent(safeOptions.progress);
+  progressState.totalFacts = safeOptions.totalFacts || 0;
+  progressState.processedFacts = safeOptions.processedFacts || 0;
   progressState.agentUpdates = [];
   
   // Render initial state
@@ -59,27 +64,28 @@ export function showProgress(options = {}) {
  * @param {Object} updates - Progress updates
  */
 export function updateProgress(updates = {}) {
+  const safeUpdates = normalizeObject(updates);
   if (!progressPopup) {
     console.warn('Progress popup not shown, cannot update');
     return;
   }
   
   // Update state
-  if (updates.currentStep !== undefined) {
-    progressState.currentStep = updates.currentStep;
+  if (safeUpdates.currentStep !== undefined) {
+    progressState.currentStep = safeUpdates.currentStep;
   }
-  if (updates.progress !== undefined) {
-    progressState.progress = Math.min(100, Math.max(0, updates.progress));
+  if (safeUpdates.progress !== undefined) {
+    progressState.progress = clampPercent(safeUpdates.progress);
   }
-  if (updates.totalFacts !== undefined) {
-    progressState.totalFacts = updates.totalFacts;
+  if (safeUpdates.totalFacts !== undefined) {
+    progressState.totalFacts = safeUpdates.totalFacts;
   }
-  if (updates.processedFacts !== undefined) {
-    progressState.processedFacts = updates.processedFacts;
+  if (safeUpdates.processedFacts !== undefined) {
+    progressState.processedFacts = safeUpdates.processedFacts;
   }
-  if (updates.agentUpdate) {
+  if (safeUpdates.agentUpdate) {
     // Add agent update to list (keep last 5)
-    progressState.agentUpdates.unshift(updates.agentUpdate);
+    progressState.agentUpdates.unshift(safeUpdates.agentUpdate);
     progressState.agentUpdates = progressState.agentUpdates.slice(0, 5);
   }
   
@@ -137,8 +143,8 @@ function renderProgress() {
   
   // Calculate percentage
   const percentage = totalFacts > 0 
-    ? Math.round((processedFacts / totalFacts) * 100)
-    : progress;
+    ? clampPercent((processedFacts / totalFacts) * 100)
+    : clampPercent(progress);
   
   // Build HTML
   const html = `
@@ -216,10 +222,7 @@ function handleCancelClick() {
   console.log('User cancelled fact-check');
   
   // Send cancel message to background
-  chrome.runtime.sendMessage({
-    type: 'CANCEL_FACT_CHECK',
-    payload: {}
-  }).catch(error => {
+  sendToBackground(MessageType.CANCEL_FACT_CHECK, {}).catch(error => {
     console.error('Error sending cancel message:', error);
   });
   
@@ -227,23 +230,18 @@ function handleCancelClick() {
   hideProgress();
 }
 
-/**
- * Escape HTML to prevent XSS
- * @param {string} text - Text to escape
- * @returns {string}
- * @private
- */
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+function normalizeObject(value) {
+  return value && typeof value === 'object' ? value : {};
 }
+
+ 
 
 /**
  * Show results summary
  * @param {Object} summary - Results summary
  */
 export function showResults(summary) {
+  const safeSummary = normalizeObject(summary);
   if (!progressPopup) {
     // Create popup if it doesn't exist
     progressPopup = createProgressPopup();
@@ -255,7 +253,7 @@ export function showResults(summary) {
   progressPopup.classList.add('results-mode');
   
   // Determine overall status color
-  const statusColor = getOverallStatusColor(summary);
+  const statusColor = getOverallStatusColor(safeSummary);
   
   // Build results HTML
   const html = `
@@ -271,21 +269,21 @@ export function showResults(summary) {
     <div class="truthseek-results-body">
       <div class="truthseek-results-summary">
         <div class="truthseek-result-stat">
-          <span class="truthseek-stat-value">${summary.totalFacts || 0}</span>
+          <span class="truthseek-stat-value">${safeSummary.totalFacts || 0}</span>
           <span class="truthseek-stat-label">Facts Checked</span>
         </div>
         
         <div class="truthseek-result-breakdown">
           <div class="truthseek-breakdown-item truthseek-breakdown-true">
-            <span class="truthseek-breakdown-count">${summary.trueCount || 0}</span>
+            <span class="truthseek-breakdown-count">${safeSummary.trueCount || 0}</span>
             <span class="truthseek-breakdown-label">True</span>
           </div>
           <div class="truthseek-breakdown-item truthseek-breakdown-false">
-            <span class="truthseek-breakdown-count">${summary.falseCount || 0}</span>
+            <span class="truthseek-breakdown-count">${safeSummary.falseCount || 0}</span>
             <span class="truthseek-breakdown-label">False</span>
           </div>
           <div class="truthseek-breakdown-item truthseek-breakdown-unverified">
-            <span class="truthseek-breakdown-count">${summary.unverifiedCount || 0}</span>
+            <span class="truthseek-breakdown-count">${safeSummary.unverifiedCount || 0}</span>
             <span class="truthseek-breakdown-label">Unverified</span>
           </div>
         </div>
@@ -294,10 +292,10 @@ export function showResults(summary) {
       <div class="truthseek-overall-confidence">
         <span class="truthseek-confidence-label">Overall Confidence</span>
         <div class="truthseek-confidence-bar-large">
-          <div class="truthseek-confidence-fill-large ${getConfidenceClass(summary.overallConfidenceCategory)}" 
-               style="width: ${summary.overallConfidence || 0}%"></div>
+          <div class="truthseek-confidence-fill-large ${getConfidenceClass(safeSummary.overallConfidenceCategory)}" 
+               style="width: ${clampPercent(safeSummary.overallConfidence)}%"></div>
         </div>
-        <span class="truthseek-confidence-value">${summary.overallConfidence || 0}%</span>
+        <span class="truthseek-confidence-value">${clampPercent(safeSummary.overallConfidence)}%</span>
       </div>
       
       <p class="truthseek-results-hint">Tip: Click highlighted text to view details</p>
@@ -317,7 +315,7 @@ export function showResults(summary) {
     closeButton.addEventListener('click', closeResults);
   }
   
-  console.log('Results summary shown:', summary);
+  console.log('Results summary shown:', safeSummary);
 }
 
 /**
