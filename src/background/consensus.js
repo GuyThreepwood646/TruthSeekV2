@@ -14,9 +14,30 @@ export function aggregateResults(agentResults) {
     throw new Error('No results to aggregate');
   }
   
-  // Single agent - no aggregation needed
-  if (agentResults.length === 1) {
-    const result = agentResults[0];
+  const eligibleResults = agentResults.filter(result => !isExcludedFromAggregate(result));
+  
+  if (eligibleResults.length === 0) {
+    const fallbackReasoning = agentResults[0]?.reasoning || 'No evidence or model knowledge available.';
+    
+    return {
+      factId: agentResults[0].factId,
+      aggregateVerdict: 'UNVERIFIED',
+      aggregateConfidence: 0,
+      aggregateConfidenceCategory: 'very-low',
+      agentResults,
+      hasDisagreement: false,
+      disagreementNote: null,
+      disagreementType: null,
+      needsReVerification: false,
+      reasoning: fallbackReasoning,
+      sources: [],
+      noModelKnowledge: true
+    };
+  }
+  
+  // Single eligible agent - no aggregation needed
+  if (eligibleResults.length === 1) {
+    const result = eligibleResults[0];
     return {
       factId: result.factId || agentResults[0].factId,
       aggregateVerdict: result.verdict,
@@ -28,28 +49,29 @@ export function aggregateResults(agentResults) {
       disagreementType: null,
       needsReVerification: false,
       reasoning: result.reasoning,
-      sources: result.sources || []
+      sources: result.sources || [],
+      noModelKnowledge: result.noModelKnowledge === true
     };
   }
   
   // Count verdicts
   const verdictCounts = {
-    TRUE: agentResults.filter(r => r.verdict === 'TRUE').length,
-    FALSE: agentResults.filter(r => r.verdict === 'FALSE').length,
-    UNVERIFIED: agentResults.filter(r => r.verdict === 'UNVERIFIED').length
+    TRUE: eligibleResults.filter(r => r.verdict === 'TRUE').length,
+    FALSE: eligibleResults.filter(r => r.verdict === 'FALSE').length,
+    UNVERIFIED: eligibleResults.filter(r => r.verdict === 'UNVERIFIED').length
   };
   
   // Check for strong disagreement (TRUE vs FALSE)
   const hasStrongDisagreement = verdictCounts.TRUE > 0 && verdictCounts.FALSE > 0;
   
   // Determine disagreement type and whether re-verification is recommended
-  const disagreementAnalysis = analyzeDisagreement(verdictCounts, hasStrongDisagreement, agentResults);
+  const disagreementAnalysis = analyzeDisagreement(verdictCounts, hasStrongDisagreement, eligibleResults);
   
   // Determine aggregate verdict
   const aggregateVerdict = determineAggregateVerdict(verdictCounts, hasStrongDisagreement);
   
   // Calculate aggregate confidence
-  const confidences = agentResults.map(r => r.confidence);
+  const confidences = eligibleResults.map(r => r.confidence);
   let baseConfidence = average(confidences);
   
   // Apply disagreement penalty
@@ -68,10 +90,10 @@ export function aggregateResults(agentResults) {
   }
   
   // Aggregate reasoning from all agents
-  const reasoning = aggregateReasoning(agentResults, aggregateVerdict);
+  const reasoning = aggregateReasoning(eligibleResults, aggregateVerdict);
   
   // Collect all unique sources
-  const allSources = collectUniqueSources(agentResults);
+  const allSources = collectUniqueSources(eligibleResults);
   
   return {
     factId: agentResults[0].factId,
@@ -85,8 +107,21 @@ export function aggregateResults(agentResults) {
     needsReVerification: disagreementAnalysis.needsReVerification,
     suggestedSearchTerms: disagreementAnalysis.suggestedSearchTerms,
     reasoning,
-    sources: allSources
+    sources: allSources,
+    noModelKnowledge: false
   };
+}
+
+/**
+ * Check if a result should be excluded from aggregation
+ * @param {Object} result - Agent result
+ * @returns {boolean}
+ * @private
+ */
+function isExcludedFromAggregate(result) {
+  return result?.noModelKnowledge === true &&
+    result?.verdict === 'UNVERIFIED' &&
+    Number(result?.confidence) === 0;
 }
 
 /**

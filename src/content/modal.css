@@ -244,6 +244,15 @@
   color: #495057;
 }
 
+.ts-unverified-note {
+  margin: 8px 0 16px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  color: #6c757d;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
 /* Disagreement Warning */
 .ts-disagreement-warning {
   margin-bottom: 16px;
@@ -759,6 +768,11 @@
   
   .ts-fact-reasoning p {
     color: #e6e6e6;
+  }
+  
+  .ts-unverified-note {
+    background: #3a3a3a;
+    color: #b0b0b0;
   }
   
   .ts-sources h4 {

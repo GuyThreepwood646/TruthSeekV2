@@ -7,14 +7,20 @@ import { AIProvider, AIProviderError, AIProviderException } from '../provider-in
 import { encrypt, decrypt } from '../../utils/crypto.js';
 import { getModelMetadata } from '../../config/model-metadata.js';
 import { parseExtractionResponse, buildAdaptiveExtractionPrompt, cleanJsonResponse } from '../prompts/extraction.js';
-import { buildVerificationPrompt, buildSearchQuery } from '../prompts/verification.js';
-import { calculateConfidence } from '../../background/confidence-scoring.js';
+import { buildVerificationPrompt, buildSearchQuery, buildTierBiasedQuery, buildNoEvidenceFallbackPrompt } from '../prompts/verification.js';
+import { calculateConfidence, categorizeScore } from '../../background/confidence-scoring.js';
+import { assignSourceTier, sortSourcesByTierPreference } from '../../background/source-tiering.js';
 import { checkKnowledgeCutoff } from '../../background/verification-orchestrator.js';
+import { filterValidSources } from '../../background/url-validator.js';
+import { extractJsonObject, buildFallbackVerificationResult } from '../../utils/json-sanitizer.js';
 
 const ANTHROPIC_API_BASE = 'https://api.anthropic.com/v1';
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_TIMEOUT = 60000; // 60 seconds
 const RATE_LIMIT_DELAY = 1000; // 1 second between requests
+const MAX_SOURCES_PER_QUERY = 3;
+const MAX_SOURCES_PER_DIRECTION = 3;
+const GENERAL_RANK_OFFSET = 10;
 
 export class AnthropicProvider extends AIProvider {
   constructor(config) {
@@ -162,6 +168,8 @@ export class AnthropicProvider extends AIProvider {
       // Build search queries
       const supportingQuery = buildSearchQuery(fact, 'supporting');
       const refutingQuery = buildSearchQuery(fact, 'refuting');
+      const supportingTierQuery = buildTierBiasedQuery(fact, 'supporting');
+      const refutingTierQuery = buildTierBiasedQuery(fact, 'refuting');
       
       // Define web search tool for Anthropic tool_use
       const tools = [{
@@ -180,7 +188,26 @@ export class AnthropicProvider extends AIProvider {
       }];
       
       // Perform web searches
-      const sources = await this.performWebSearches(supportingQuery, refutingQuery, apiKey, tools);
+      const sources = await this.performWebSearches(
+        {
+          supportingQuery,
+          refutingQuery,
+          supportingTierQuery,
+          refutingTierQuery
+        },
+        apiKey,
+        tools,
+        category
+      );
+      
+      let validatedSources = sources;
+      try {
+        const supportingValidated = await filterValidSources(sources.supporting, fact.originalText);
+        const refutingValidated = await filterValidSources(sources.refuting, fact.originalText);
+        validatedSources = { supporting: supportingValidated, refuting: refutingValidated };
+      } catch (error) {
+        console.warn('[Anthropic] Source validation failed, using raw sources:', error);
+      }
       
       // Build verification prompt with sources
       const prompt = buildVerificationPrompt({
@@ -188,8 +215,8 @@ export class AnthropicProvider extends AIProvider {
         category,
         currentDate,
         modelCutoffDate: providerInfo.knowledgeCutoff,
-        supportingSources: sources.supporting,
-        refutingSources: sources.refuting,
+        supportingSources: validatedSources.supporting,
+        refutingSources: validatedSources.refuting,
         pageMetadata: fact.pageMetadata || null
       });
       
@@ -230,18 +257,10 @@ export class AnthropicProvider extends AIProvider {
       const cleanedContent = cleanJsonResponse(content);
       
       // Extract JSON from response (Anthropic sometimes wraps JSON in text)
-      const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        console.error('No valid JSON in response:', cleanedContent.substring(0, 200));
-        throw new Error('No valid JSON in verification response');
-      }
-      
-      let result;
-      try {
-        result = JSON.parse(jsonMatch[0]);
-      } catch (parseError) {
-        console.error('Failed to parse verification JSON:', jsonMatch[0].substring(0, 200));
-        throw new Error(`Invalid JSON response: ${parseError.message}`);
+      let result = extractJsonObject(cleanedContent);
+      if (!result) {
+        console.warn('No valid JSON in response, using fallback parsing:', cleanedContent.substring(0, 200));
+        result = buildFallbackVerificationResult(cleanedContent);
       }
       
       // Validate result structure
@@ -250,23 +269,30 @@ export class AnthropicProvider extends AIProvider {
       }
       
       if (!result.verdict || !result.reasoning) {
-        console.error('Missing required fields in verification result:', result);
-        throw new Error('Incomplete verification response');
+        console.warn('Missing required fields in verification result, using fallback text.');
+        const fallback = buildFallbackVerificationResult(cleanedContent);
+        result = {
+          ...fallback,
+          ...result
+        };
       }
       
-      const hasVerifiedUrls = sources.supporting.length > 0 || sources.refuting.length > 0;
+      const hasVerifiedUrls = validatedSources.supporting.length > 0 || validatedSources.refuting.length > 0;
       if (!hasVerifiedUrls) {
+        const fallbackResult = await this.runNoEvidenceFallback(fact, category, providerInfo, currentDate, apiKey);
+        
         return {
           factId: fact.id,
           agentId: this.config.id,
           verdict: 'UNVERIFIED',
-          confidence: 0,
-          confidenceCategory: 'very-low',
-          reasoning: 'No verifiable sources were found to support or refute this fact.',
+          confidence: fallbackResult.confidence,
+          confidenceCategory: categorizeScore(fallbackResult.confidence),
+          reasoning: fallbackResult.reasoning,
           sources: [],
           knowledgeCutoffMessage: null,
           tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          noModelKnowledge: !fallbackResult.hasModelKnowledge
         };
       }
       
@@ -274,8 +300,8 @@ export class AnthropicProvider extends AIProvider {
       const confidenceResult = calculateConfidence(
         result.verdict,
         result.confidence / 100,
-        sources.supporting,
-        sources.refuting,
+        validatedSources.supporting,
+        validatedSources.refuting,
         hasVerifiedUrls
       );
       
@@ -289,7 +315,7 @@ export class AnthropicProvider extends AIProvider {
         confidence: confidenceResult.score,
         confidenceCategory: confidenceResult.category,
         reasoning: result.reasoning,
-        sources: [...sources.supporting, ...sources.refuting],
+        sources: [...validatedSources.supporting, ...validatedSources.refuting],
         knowledgeCutoffMessage: cutoffMessage,
         tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
         timestamp: Date.now()
@@ -317,17 +343,29 @@ export class AnthropicProvider extends AIProvider {
    * Perform web searches using Anthropic tool_use
    * @private
    */
-  async performWebSearches(supportingQuery, refutingQuery, apiKey, tools) {
+  async performWebSearches(queries, apiKey, tools, category) {
     const sources = { supporting: [], refuting: [] };
     
     try {
       // Note: Anthropic's tool_use simulates web search
       // In production, this would integrate with actual search APIs
-      const supportingResults = await this.callToolSearch(supportingQuery, apiKey, tools);
-      sources.supporting = this.parseSearchResults(supportingResults, true);
+      const supportingTierResults = await this.callToolSearch(queries.supportingTierQuery, apiKey, tools);
+      const supportingResults = await this.callToolSearch(queries.supportingQuery, apiKey, tools);
+      const supportingSources = this.mergeSources(
+        this.parseSearchResults(supportingTierResults, true, 0, category),
+        this.parseSearchResults(supportingResults, true, GENERAL_RANK_OFFSET, category)
+      );
+      sources.supporting = sortSourcesByTierPreference(supportingSources)
+        .slice(0, MAX_SOURCES_PER_DIRECTION);
       
-      const refutingResults = await this.callToolSearch(refutingQuery, apiKey, tools);
-      sources.refuting = this.parseSearchResults(refutingResults, false);
+      const refutingTierResults = await this.callToolSearch(queries.refutingTierQuery, apiKey, tools);
+      const refutingResults = await this.callToolSearch(queries.refutingQuery, apiKey, tools);
+      const refutingSources = this.mergeSources(
+        this.parseSearchResults(refutingTierResults, false, 0, category),
+        this.parseSearchResults(refutingResults, false, GENERAL_RANK_OFFSET, category)
+      );
+      sources.refuting = sortSourcesByTierPreference(refutingSources)
+        .slice(0, MAX_SOURCES_PER_DIRECTION);
     } catch (error) {
       console.warn('Web search failed:', error);
     }
@@ -365,12 +403,96 @@ export class AnthropicProvider extends AIProvider {
     
     return response;
   }
+
+  /**
+   * Run internal-knowledge fallback when no evidence URLs exist
+   * @param {Fact} fact - Fact to verify
+   * @param {string} category - Fact category
+   * @param {object} providerInfo - Provider metadata
+   * @param {string} currentDate - Current date
+   * @param {string} apiKey - API key
+   * @returns {Promise<{confidence: number, reasoning: string, hasModelKnowledge: boolean}>}
+   * @private
+   */
+  async runNoEvidenceFallback(fact, category, providerInfo, currentDate, apiKey) {
+    try {
+      const prompt = buildNoEvidenceFallbackPrompt({
+        fact,
+        category,
+        currentDate,
+        modelCutoffDate: providerInfo.knowledgeCutoff
+      });
+      
+      const response = await this.makeRequest(
+        '/messages',
+        'POST',
+        {
+          model: this.config.model,
+          max_tokens: 1024,
+          temperature: 0.2,
+          system: prompt.system,
+          messages: [
+            {
+              role: 'user',
+              content: prompt.user
+            }
+          ]
+        },
+        apiKey
+      );
+      
+      if (response.usage) {
+        this.tokenUsage.input += response.usage.input_tokens || 0;
+        this.tokenUsage.output += response.usage.output_tokens || 0;
+        this.tokenUsage.total = this.tokenUsage.input + this.tokenUsage.output;
+      }
+      
+      const content = response.content?.[0]?.text || '';
+      const cleanedContent = cleanJsonResponse(content);
+      const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+      
+      if (!jsonMatch) {
+        return {
+          confidence: 0,
+          reasoning: 'No model-only reasoning available.',
+          hasModelKnowledge: false
+        };
+      }
+      
+      const parsed = JSON.parse(jsonMatch[0]);
+      const hasModelKnowledge = parsed?.hasModelKnowledge !== false;
+      
+      if (!hasModelKnowledge || !parsed?.reasoning) {
+        return {
+          confidence: 0,
+          reasoning: parsed?.reasoning || 'No model-only reasoning available.',
+          hasModelKnowledge: false
+        };
+      }
+      
+      const rawConfidence = Number.isFinite(parsed.confidence) ? parsed.confidence : 0;
+      const confidence = Math.max(0, Math.min(70, rawConfidence));
+      
+      return {
+        confidence,
+        reasoning: parsed.reasoning,
+        hasModelKnowledge: true
+      };
+    } catch (error) {
+      console.warn('[Anthropic] Fallback reasoning failed:', error);
+      return {
+        confidence: 0,
+        reasoning: 'No model-only reasoning available.',
+        hasModelKnowledge: false
+      };
+    }
+  }
   
   /**
    * Parse search results from Anthropic tool_use response
    * @private
    */
-  parseSearchResults(response, isSupporting) {
+  parseSearchResults(response, isSupporting, rankOffset = 0, category = null) {
     const sources = [];
     
     try {
@@ -389,7 +511,8 @@ export class AnthropicProvider extends AIProvider {
           const urlPattern = /https?:\/\/[^\s<>"]+/g;
           const urls = text.match(urlPattern) || [];
           
-          for (const url of urls.slice(0, 3)) {
+          const limitedUrls = urls.slice(0, MAX_SOURCES_PER_QUERY);
+          for (const [index, url] of limitedUrls.entries()) {
             try {
               const domain = new URL(url).hostname;
               sources.push({
@@ -397,9 +520,10 @@ export class AnthropicProvider extends AIProvider {
                 title: `Result from ${domain}`,
                 snippet: `Found via search`,
                 domain,
-                tier: 3,
+                tier: assignSourceTier(domain, category),
                 isSupporting,
-                validatedAt: Date.now()
+                validatedAt: Date.now(),
+                rankIndex: rankOffset + index
               });
             } catch (e) {
               // Invalid URL
@@ -413,6 +537,53 @@ export class AnthropicProvider extends AIProvider {
     
     return sources;
   }
+
+  /**
+   * Merge sources and remove duplicates by normalized URL
+   * @param {Source[]} primary - Primary sources
+   * @param {Source[]} secondary - Secondary sources
+   * @returns {Source[]}
+   * @private
+   */
+  mergeSources(primary, secondary) {
+    const merged = [];
+    const seen = new Set();
+    
+    for (const source of [...primary, ...secondary]) {
+      const normalized = this.normalizeUrl(source.url);
+      if (seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      merged.push(source);
+    }
+    
+    return merged;
+  }
+
+  /**
+   * Normalize URL for deduplication
+   * @param {string} url - URL to normalize
+   * @returns {string}
+   * @private
+   */
+  normalizeUrl(url) {
+    try {
+      const parsed = new URL(url);
+      let normalized = `${parsed.origin}${parsed.pathname}`;
+      normalized = normalized.replace(/\/$/, '');
+      return normalized.toLowerCase();
+    } catch (error) {
+      return (url || '').toLowerCase();
+    }
+  }
+
+  /**
+   * Sanitize JSON string by escaping control characters inside strings
+   * @param {string} jsonText - Raw JSON text
+   * @returns {string}
+   * @private
+   */
 
   /**
    * Check if authenticated

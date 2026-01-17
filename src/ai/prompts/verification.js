@@ -29,10 +29,13 @@ export function buildVerificationPrompt(context) {
   const system = `You are a fact verification specialist. Your ONLY job is to verify facts using the web search results provided.
 
 CRITICAL RULES:
-1. Base your assessment ONLY on the provided sources from web search
-2. Do NOT use your training data or knowledge
-3. You MUST cite specific sources (by URL) for every claim you make
-4. If sources are insufficient or conflicting, verdict MUST be "UNVERIFIED"
+1. You MUST rely on the provided web search sources. Do not verify before reviewing them.
+2. Never invent or guess URLs. URLs MUST come only from the provided sources.
+3. Do NOT use internal knowledge to provide any URL, ever.
+4. Use the destination URL (final resolved URL), not redirect or tracking URLs.
+5. You MUST cite specific sources (by URL) for every claim you make.
+6. If no sources are provided, you may use internal knowledge only for reasoning, but verdict MUST be "UNVERIFIED" and citedSources MUST be empty.
+7. If sources are insufficient or conflicting, verdict MUST be "UNVERIFIED".
 
 CURRENT DATE: ${currentDate}
 YOUR KNOWLEDGE CUTOFF: ${modelCutoffDate}
@@ -69,7 +72,10 @@ SOURCE TIERS:
 - Tier 1: Authoritative (government, academic, major news)
 - Tier 2: Reputable (established organizations, verified experts)
 - Tier 3: General (standard websites, blogs with citations)
-- Tier 4: Unverified (unknown sources, no clear authority)`;
+- Tier 4: Unverified (unknown sources, no clear authority)
+
+SOURCE PRIORITY:
+- Prefer Tier 1-2 sources first. Only use Tier 3-4 if higher tiers are unavailable or conflicting.`;
 
   const user = `FACT TO VERIFY:
 "${fact.originalText}"
@@ -85,7 +91,7 @@ ${formatSources(supportingSources)}
 REFUTING SOURCES FOUND:
 ${formatSources(refutingSources)}
 
-Based ONLY on these sources, verify the fact. Respond with valid JSON only.`;
+Based ONLY on these sources, verify the fact. If no sources are listed, return UNVERIFIED with reasoning but do not include any URLs. Respond with valid JSON only.`;
 
   return { system, user };
 }
@@ -166,6 +172,18 @@ export function buildSearchQuery(fact, direction = 'supporting') {
 }
 
 /**
+ * Build tier-biased search query for fact verification
+ * @param {Fact} fact - Fact to verify
+ * @param {string} direction - 'supporting' or 'refuting'
+ * @returns {string}
+ */
+export function buildTierBiasedQuery(fact, direction = 'supporting') {
+  const baseQuery = buildSearchQuery(fact, direction);
+  const tierBias = '(site:.gov OR site:.edu OR site:.mil OR site:.int)';
+  return `${baseQuery} ${tierBias}`;
+}
+
+/**
  * Build verification prompt for Google Gemini with grounding
  * This prompt accounts for the fact that Google Search grounding provides web access
  * but may not include text snippets in the API response
@@ -184,11 +202,13 @@ export function buildGroundedVerificationPrompt(context) {
   const system = `You are a fact verification specialist with access to Google Search.
 
 CRITICAL RULES:
-1. You have access to Google Search and can look up current information
-2. Search for and review web sources to verify the fact
-3. Base your assessment on what you find in your search results
-4. Cite specific sources (by URL and content) for your verdict
-5. If you cannot find sufficient information, verdict MUST be "UNVERIFIED"
+1. You MUST perform a grounded web search before verifying the fact.
+2. Base your assessment only on what you find in your search results.
+3. Never invent or guess URLs. URLs MUST come only from your grounded search.
+4. Do NOT use internal knowledge to provide any URL, ever.
+5. Use the destination URL (final resolved URL), not redirect or tracking URLs.
+6. If you cannot find sufficient information, verdict MUST be "UNVERIFIED".
+7. If no evidence URLs are found, you may use internal knowledge only for reasoning, but citedSources MUST be empty.
 
 CURRENT DATE: ${currentDate}
 YOUR KNOWLEDGE CUTOFF: ${modelCutoffDate}
@@ -225,7 +245,10 @@ SOURCE EVALUATION:
 - Authoritative: government sites (.gov), academic institutions (.edu), major news organizations
 - Reputable: established organizations, verified experts, known publications
 - General: standard websites with clear attribution
-- Weak: unknown sources, no clear authority, user-generated content`;
+- Weak: unknown sources, no clear authority, user-generated content
+
+SOURCE PRIORITY:
+- Prefer authoritative/reputable sources first. Only use general/weak sources if higher tiers are unavailable.`;
 
   const user = `FACT TO VERIFY:
 "${fact.originalText}"
@@ -235,8 +258,50 @@ CATEGORY: ${category}
 PAGE METADATA (context only):
 ${formatMetadata(pageMetadata)}
 
-Use Google Search to find reliable sources that either support or refute this fact. Review the sources you find and provide your verdict with citations. Respond with valid JSON only.`;
+Use Google Search to find reliable sources that either support or refute this fact. Review the sources you find and provide your verdict with citations. If no evidence URLs are found, return UNVERIFIED with reasoning and no URLs. Respond with valid JSON only.`;
 
+  return { system, user };
+}
+
+/**
+ * Build fallback prompt for internal-knowledge reasoning when no sources exist
+ * @param {Object} context - Verification context
+ * @param {Fact} context.fact - Fact to verify
+ * @param {string} context.category - Fact category
+ * @param {string} context.currentDate - Current date (YYYY-MM-DD)
+ * @param {string} context.modelCutoffDate - Model's knowledge cutoff date
+ * @returns {{system: string, user: string}}
+ */
+export function buildNoEvidenceFallbackPrompt(context) {
+  const { fact, category, currentDate, modelCutoffDate } = context;
+  
+  const system = `You are a fact verification specialist.
+
+CRITICAL RULES:
+1. No web sources are available. Do NOT claim you searched or found evidence.
+2. Do NOT provide URLs or citations. Never invent or guess URLs.
+3. You MUST return verdict "UNVERIFIED" regardless of your opinion.
+4. If you have any general knowledge, provide a brief, user-friendly opinion.
+5. If you have no relevant knowledge, say so clearly and set hasModelKnowledge to false.
+
+CURRENT DATE: ${currentDate}
+YOUR KNOWLEDGE CUTOFF: ${modelCutoffDate}
+
+OUTPUT FORMAT (JSON):
+{
+  "verdict": "UNVERIFIED",
+  "confidence": <0-70 based on your general knowledge only>,
+  "reasoning": "<brief, non-technical explanation or uncertainty>",
+  "hasModelKnowledge": <true if you have any relevant knowledge, else false>
+}`;
+  
+  const user = `FACT TO VERIFY:
+"${fact.originalText}"
+
+CATEGORY: ${category}
+
+Provide a concise, user-friendly explanation based only on your internal knowledge (if any). Respond with valid JSON only.`;
+  
   return { system, user };
 }
 

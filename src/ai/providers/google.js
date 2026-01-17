@@ -7,14 +7,19 @@ import { AIProvider, AIProviderError, AIProviderException } from '../provider-in
 import { encrypt, decrypt } from '../../utils/crypto.js';
 import { getModelMetadata } from '../../config/model-metadata.js';
 import { parseExtractionResponse, buildAdaptiveExtractionPrompt, cleanJsonResponse } from '../prompts/extraction.js';
-import { buildVerificationPrompt, buildSearchQuery, buildGroundedVerificationPrompt } from '../prompts/verification.js';
-import { calculateConfidence } from '../../background/confidence-scoring.js';
+import { buildVerificationPrompt, buildSearchQuery, buildTierBiasedQuery, buildGroundedVerificationPrompt, buildNoEvidenceFallbackPrompt } from '../prompts/verification.js';
+import { calculateConfidence, categorizeScore } from '../../background/confidence-scoring.js';
+import { assignSourceTier, sortSourcesByTierPreference } from '../../background/source-tiering.js';
 import { checkKnowledgeCutoff } from '../../background/verification-orchestrator.js';
 import { resolveGoogleGroundingUrl, isGoogleGroundingRedirect } from '../../utils/url-resolver.js';
+import { extractJsonObject, buildFallbackVerificationResult } from '../../utils/json-sanitizer.js';
 
 const GOOGLE_AI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_TIMEOUT = 60000; // 60 seconds
 const RATE_LIMIT_DELAY = 1000; // 1 second between requests
+const MAX_SOURCES_PER_QUERY = 3;
+const MAX_SOURCES_PER_DIRECTION = 3;
+const GENERAL_RANK_OFFSET = 10;
 
 export class GoogleProvider extends AIProvider {
   constructor(config) {
@@ -245,7 +250,7 @@ export class GoogleProvider extends AIProvider {
       
       if (!content) {
         const groundingMetadata = candidate?.groundingMetadata || null;
-        const groundedSources = await this.extractGroundingSources(groundingMetadata);
+        const groundedSources = await this.extractGroundingSources(groundingMetadata, category);
         const finishReason = candidate?.finishReason || 'unknown';
         
         console.warn('[Google] No verification text returned:', {
@@ -253,6 +258,25 @@ export class GoogleProvider extends AIProvider {
           hasGrounding: !!groundingMetadata,
           responseId: response?.responseId || null
         });
+        
+        const hasVerifiedUrls = groundedSources.supporting.length > 0 || groundedSources.refuting.length > 0;
+        if (!hasVerifiedUrls) {
+          const fallbackResult = await this.runNoEvidenceFallback(fact, category, providerInfo, currentDate);
+          
+          return {
+            factId: fact.id,
+            agentId: this.config.id,
+            verdict: 'UNVERIFIED',
+            confidence: fallbackResult.confidence,
+            confidenceCategory: categorizeScore(fallbackResult.confidence),
+            reasoning: fallbackResult.reasoning,
+            sources: [],
+            knowledgeCutoffMessage: null,
+            tokensUsed: response.usageMetadata?.totalTokenCount || 0,
+            timestamp: Date.now(),
+            noModelKnowledge: !fallbackResult.hasModelKnowledge
+          };
+        }
         
         return {
           factId: fact.id,
@@ -283,23 +307,22 @@ function extractCandidateText(candidate) {
   
   return textParts.join('\n').trim();
 }
+
+/**
+ * Sanitize JSON string by escaping control characters inside strings
+ * @param {string} jsonText - Raw JSON text
+ * @returns {string}
+ * @private
+ */
       
       // Clean and parse JSON response
       const cleanedContent = cleanJsonResponse(content);
       
       // Extract JSON from response (may be wrapped in text when using tools)
-      const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        console.error('No valid JSON in response:', cleanedContent.substring(0, 200));
-        throw new Error('No valid JSON in verification response');
-      }
-      
-      let result;
-      try {
-        result = JSON.parse(jsonMatch[0]);
-      } catch (parseError) {
-        console.error('Failed to parse verification JSON:', jsonMatch[0].substring(0, 200));
-        throw new Error(`Invalid JSON response: ${parseError.message}`);
+      let result = extractJsonObject(cleanedContent);
+      if (!result) {
+        console.warn('No valid JSON in response, using fallback parsing:', cleanedContent.substring(0, 200));
+        result = buildFallbackVerificationResult(cleanedContent);
       }
       
       // Validate result structure
@@ -308,8 +331,12 @@ function extractCandidateText(candidate) {
       }
       
       if (!result.verdict || !result.reasoning) {
-        console.error('Missing required fields in verification result:', result);
-        throw new Error('Incomplete verification response');
+        console.warn('Missing required fields in verification result, using fallback text.');
+        const fallback = buildFallbackVerificationResult(cleanedContent);
+        result = {
+          ...fallback,
+          ...result
+        };
       }
       
       // Extract grounding metadata if available
@@ -320,10 +347,28 @@ function extractCandidateText(candidate) {
       
       // Extract sources from grounding chunks
       // Note: snippets may be empty, but URLs and titles should be present
-      const groundedSources = await this.extractGroundingSources(groundingMetadata);
+      const groundedSources = await this.extractGroundingSources(groundingMetadata, category);
+      
+      const hasVerifiedUrls = groundedSources.supporting.length > 0 || groundedSources.refuting.length > 0;
+      if (!hasVerifiedUrls) {
+        const fallbackResult = await this.runNoEvidenceFallback(fact, category, providerInfo, currentDate);
+        
+        return {
+          factId: fact.id,
+          agentId: this.config.id,
+          verdict: 'UNVERIFIED',
+          confidence: fallbackResult.confidence,
+          confidenceCategory: categorizeScore(fallbackResult.confidence),
+          reasoning: fallbackResult.reasoning,
+          sources: [],
+          knowledgeCutoffMessage: null,
+          tokensUsed: response.usageMetadata?.totalTokenCount || 0,
+          timestamp: Date.now(),
+          noModelKnowledge: !fallbackResult.hasModelKnowledge
+        };
+      }
       
       // Calculate confidence
-      const hasVerifiedUrls = groundedSources.supporting.length > 0 || groundedSources.refuting.length > 0;
       const confidenceResult = calculateConfidence(
         result.verdict,
         result.confidence / 100,
@@ -370,17 +415,29 @@ function extractCandidateText(candidate) {
    * Perform web searches using Google Search grounding
    * @private
    */
-  async performWebSearches(supportingQuery, refutingQuery) {
+  async performWebSearches(queries, category) {
     const sources = { supporting: [], refuting: [] };
     
     try {
       // Call Gemini with Google Search for supporting evidence
-      const supportingResults = await this.callGroundedSearch(supportingQuery);
-      sources.supporting = await this.parseGroundedResults(supportingResults, true);
+      const supportingTierResults = await this.callGroundedSearch(queries.supportingTierQuery);
+      const supportingResults = await this.callGroundedSearch(queries.supportingQuery);
+      const supportingSources = this.mergeSources(
+        await this.parseGroundedResults(supportingTierResults, true, 0, category),
+        await this.parseGroundedResults(supportingResults, true, GENERAL_RANK_OFFSET, category)
+      );
+      sources.supporting = sortSourcesByTierPreference(supportingSources)
+        .slice(0, MAX_SOURCES_PER_DIRECTION);
       
       // Call Gemini with Google Search for refuting evidence
-      const refutingResults = await this.callGroundedSearch(refutingQuery);
-      sources.refuting = await this.parseGroundedResults(refutingResults, false);
+      const refutingTierResults = await this.callGroundedSearch(queries.refutingTierQuery);
+      const refutingResults = await this.callGroundedSearch(queries.refutingQuery);
+      const refutingSources = this.mergeSources(
+        await this.parseGroundedResults(refutingTierResults, false, 0, category),
+        await this.parseGroundedResults(refutingResults, false, GENERAL_RANK_OFFSET, category)
+      );
+      sources.refuting = sortSourcesByTierPreference(refutingSources)
+        .slice(0, MAX_SOURCES_PER_DIRECTION);
     } catch (error) {
       console.warn('Google Search grounding failed:', error);
     }
@@ -426,12 +483,111 @@ function extractCandidateText(candidate) {
     
     return response;
   }
+
+  /**
+   * Run internal-knowledge fallback when no evidence URLs exist
+   * @param {Fact} fact - Fact to verify
+   * @param {string} category - Fact category
+   * @param {object} providerInfo - Provider metadata
+   * @param {string} currentDate - Current date
+   * @returns {Promise<{confidence: number, reasoning: string, hasModelKnowledge: boolean}>}
+   * @private
+   */
+  async runNoEvidenceFallback(fact, category, providerInfo, currentDate) {
+    try {
+      const prompt = buildNoEvidenceFallbackPrompt({
+        fact,
+        category,
+        currentDate,
+        modelCutoffDate: providerInfo.knowledgeCutoff
+      });
+      
+      const response = await this.makeRequest(
+        `/models/${this.config.model}:generateContent`,
+        'POST',
+        {
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${prompt.system}\n\n${prompt.user}`
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 1024
+          }
+        }
+      );
+      
+      if (response.usageMetadata) {
+        this.tokenUsage.input += response.usageMetadata.promptTokenCount || 0;
+        this.tokenUsage.output += response.usageMetadata.candidatesTokenCount || 0;
+        this.tokenUsage.total = this.tokenUsage.input + this.tokenUsage.output;
+      }
+      
+      const candidate = response?.candidates?.[0];
+      const contentParts = candidate?.content?.parts || [];
+      const textParts = contentParts
+        .map(part => part?.text)
+        .filter(text => typeof text === 'string' && text.trim().length > 0);
+      const content = textParts.join('\n').trim();
+      
+      if (!content) {
+        return {
+          confidence: 0,
+          reasoning: 'No model-only reasoning available.',
+          hasModelKnowledge: false
+        };
+      }
+      
+      const cleanedContent = cleanJsonResponse(content);
+      const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+      
+      if (!jsonMatch) {
+        return {
+          confidence: 0,
+          reasoning: 'No model-only reasoning available.',
+          hasModelKnowledge: false
+        };
+      }
+      
+      const parsed = JSON.parse(jsonMatch[0]);
+      const hasModelKnowledge = parsed?.hasModelKnowledge !== false;
+      
+      if (!hasModelKnowledge || !parsed?.reasoning) {
+        return {
+          confidence: 0,
+          reasoning: parsed?.reasoning || 'No model-only reasoning available.',
+          hasModelKnowledge: false
+        };
+      }
+      
+      const rawConfidence = Number.isFinite(parsed.confidence) ? parsed.confidence : 0;
+      const confidence = Math.max(0, Math.min(70, rawConfidence));
+      
+      return {
+        confidence,
+        reasoning: parsed.reasoning,
+        hasModelKnowledge: true
+      };
+    } catch (error) {
+      console.warn('[Google] Fallback reasoning failed:', error);
+      return {
+        confidence: 0,
+        reasoning: 'No model-only reasoning available.',
+        hasModelKnowledge: false
+      };
+    }
+  }
   
   /**
    * Parse grounded search results
    * @private
    */
-  async parseGroundedResults(response, isSupporting) {
+  async parseGroundedResults(response, isSupporting, rankOffset = 0, category = null) {
     const sources = [];
     
     try {
@@ -441,7 +597,8 @@ function extractCandidateText(candidate) {
         // Resolve all URLs in parallel
         const urlResolutions = [];
         
-        for (const chunk of groundingMetadata.groundingChunks.slice(0, 3)) {
+        const chunks = groundingMetadata.groundingChunks.slice(0, MAX_SOURCES_PER_QUERY);
+        for (const chunk of chunks) {
           if (chunk.web) {
             const originalUrl = chunk.web.uri;
             
@@ -478,7 +635,8 @@ function extractCandidateText(candidate) {
         const resolved = await Promise.all(urlResolutions);
         
         // Build sources with resolved URLs
-        for (const { resolvedUrl, chunk } of resolved) {
+        for (const [index, resolvedItem] of resolved.entries()) {
+          const { resolvedUrl, chunk } = resolvedItem;
           try {
             const domain = new URL(resolvedUrl).hostname;
             sources.push({
@@ -486,9 +644,10 @@ function extractCandidateText(candidate) {
               title: chunk.web.title || `Result from ${domain}`,
               snippet: chunk.web.snippet || '',
               domain: domain,
-              tier: 3,
+              tier: assignSourceTier(domain, category),
               isSupporting,
-              validatedAt: Date.now()
+              validatedAt: Date.now(),
+              rankIndex: rankOffset + index
             });
           } catch (urlError) {
             console.warn(`[Google] Invalid resolved URL: ${resolvedUrl}`, urlError);
@@ -502,12 +661,52 @@ function extractCandidateText(candidate) {
     
     return sources;
   }
+
+  /**
+   * Merge sources and remove duplicates by normalized URL
+   * @param {Source[]} primary - Primary sources
+   * @param {Source[]} secondary - Secondary sources
+   * @returns {Source[]}
+   * @private
+   */
+  mergeSources(primary, secondary) {
+    const merged = [];
+    const seen = new Set();
+    
+    for (const source of [...primary, ...secondary]) {
+      const normalized = this.normalizeUrl(source.url);
+      if (seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      merged.push(source);
+    }
+    
+    return merged;
+  }
+
+  /**
+   * Normalize URL for deduplication
+   * @param {string} url - URL to normalize
+   * @returns {string}
+   * @private
+   */
+  normalizeUrl(url) {
+    try {
+      const parsed = new URL(url);
+      let normalized = `${parsed.origin}${parsed.pathname}`;
+      normalized = normalized.replace(/\/$/, '');
+      return normalized.toLowerCase();
+    } catch (error) {
+      return (url || '').toLowerCase();
+    }
+  }
   
   /**
    * Extract sources from grounding metadata
    * @private
    */
-  async extractGroundingSources(groundingMetadata) {
+  async extractGroundingSources(groundingMetadata, category = null) {
     const sources = { supporting: [], refuting: [] };
     
     if (!groundingMetadata || !groundingMetadata.groundingChunks) {
@@ -521,7 +720,8 @@ function extractCandidateText(candidate) {
       // Resolve all URLs in parallel
       const urlResolutions = [];
       
-      for (const chunk of groundingMetadata.groundingChunks) {
+      const chunks = groundingMetadata.groundingChunks.slice(0, MAX_SOURCES_PER_QUERY);
+      for (const chunk of chunks) {
         if (chunk.web) {
           const originalUrl = chunk.web.uri;
           
@@ -558,7 +758,8 @@ function extractCandidateText(candidate) {
       const resolved = await Promise.all(urlResolutions);
       
       // Build sources with resolved URLs
-      for (const { resolvedUrl, chunk } of resolved) {
+      for (const [index, resolvedItem] of resolved.entries()) {
+        const { resolvedUrl, chunk } = resolvedItem;
         try {
           const domain = new URL(resolvedUrl).hostname;
           // Determine if supporting or refuting based on context
@@ -568,15 +769,19 @@ function extractCandidateText(candidate) {
             title: chunk.web.title || `Result from ${domain}`,
             snippet: chunk.web.snippet || '',
             domain: domain,
-            tier: 3,
+            tier: assignSourceTier(domain, category),
             isSupporting: true,
-            validatedAt: Date.now()
+            validatedAt: Date.now(),
+            rankIndex: index
           });
         } catch (urlError) {
           console.warn(`[Google] Invalid resolved URL: ${resolvedUrl}`, urlError);
           // Skip invalid URLs
         }
       }
+
+      sources.supporting = sortSourcesByTierPreference(sources.supporting)
+        .slice(0, MAX_SOURCES_PER_DIRECTION);
       
       console.log(`[Google] Extracted ${sources.supporting.length} sources from grounding metadata`);
     } catch (error) {

@@ -15,8 +15,8 @@ const CONFIDENCE_THRESHOLDS = {
   medium: 85
 };
 
-// Maximum confidence without verified URLs
-const NO_EVIDENCE_CAP = 85;
+// Maximum confidence when evidence is missing or unverified
+const UNVERIFIED_CAP = 70;
 
 /**
  * Calculate confidence score based on verdict, AI confidence, and sources
@@ -44,11 +44,8 @@ export function calculateConfidence(
     
     // Fast-track if no credible refutation and Tier 1 support exists
     if (tier1to3Refuting.length === 0 && tier1Supporting.length > 0) {
-      if (tier1Supporting.length >= 3) {
+      if (tier1Supporting.length >= 2) {
         return { score: 100, category: 'very-high' };
-      }
-      if (tier1Supporting.length === 2) {
-        return { score: 95, category: 'very-high' };
       }
       if (tier1Supporting.length === 1) {
         return { score: 90, category: 'very-high' };
@@ -67,8 +64,13 @@ export function calculateConfidence(
   score += sourceScore;
   
   // Apply evidence cap if no verified URLs
-  if (!hasVerifiedUrls && score > NO_EVIDENCE_CAP) {
-    score = NO_EVIDENCE_CAP;
+  if (!hasVerifiedUrls && score > UNVERIFIED_CAP) {
+    score = UNVERIFIED_CAP;
+  }
+  
+  // Cap confidence for unverified verdicts
+  if (verdict === 'UNVERIFIED' && score > UNVERIFIED_CAP) {
+    score = UNVERIFIED_CAP;
   }
   
   // Clamp to 0-100
@@ -135,10 +137,10 @@ export function calculateSimpleConfidence(verdict, aiConfidence, needsWebSearch 
   // Base confidence on AI only, with cap at 85 (no external evidence)
   const normalizedConfidence = Number.isFinite(aiConfidence) ? aiConfidence : 0;
   const clampedConfidence = Math.max(0, Math.min(1, normalizedConfidence));
-  let score = clampedConfidence * NO_EVIDENCE_CAP;
+  let score = clampedConfidence * UNVERIFIED_CAP;
   
   // Clamp to 0-85
-  score = Math.max(0, Math.min(NO_EVIDENCE_CAP, score));
+  score = Math.max(0, Math.min(UNVERIFIED_CAP, score));
   
   const category = categorizeScore(score);
   

@@ -145,6 +145,31 @@ export function filterSourcesByTier(sources, minTier) {
 }
 
 /**
+ * Sort sources by tier preference and optional rank index
+ * @param {Source[]} sources - Sources to sort
+ * @returns {Source[]} Sorted sources
+ */
+export function sortSourcesByTierPreference(sources) {
+  if (!sources || !Array.isArray(sources)) {
+    return [];
+  }
+  
+  return [...sources].sort((a, b) => {
+    const tierA = typeof a.tier === 'number' ? a.tier : 4;
+    const tierB = typeof b.tier === 'number' ? b.tier : 4;
+    
+    if (tierA !== tierB) {
+      return tierA - tierB;
+    }
+    
+    const rankA = typeof a.rankIndex === 'number' ? a.rankIndex : Number.MAX_SAFE_INTEGER;
+    const rankB = typeof b.rankIndex === 'number' ? b.rankIndex : Number.MAX_SAFE_INTEGER;
+    
+    return rankA - rankB;
+  });
+}
+
+/**
  * Get tier statistics for sources
  * @param {Source[]} sources - Sources to analyze
  * @returns {Object} Statistics by tier

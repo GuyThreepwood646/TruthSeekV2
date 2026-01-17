@@ -154,6 +154,10 @@ function renderFact(result) {
   
   const aggregateConfidence = clampPercent(result.aggregateConfidence);
   const confidenceCategory = result.aggregateConfidenceCategory || 'low';
+  const hasSources = Array.isArray(result.sources) && result.sources.length > 0;
+  const isUnverified = (result.aggregateVerdict || 'UNVERIFIED').toUpperCase() === 'UNVERIFIED';
+  const showFallbackNote = isUnverified && !hasSources;
+  const noModelKnowledge = result.noModelKnowledge === true;
   
   // Determine verdict class
   const verdictClass = `ts-verdict-${(result.aggregateVerdict || 'unverified').toLowerCase()}`;
@@ -180,6 +184,15 @@ function renderFact(result) {
     <div class="ts-fact-reasoning">
       <p>${escapeHtml(result.reasoning || 'Processing verification...')}</p>
     </div>
+    
+    ${showFallbackNote ? `
+      <div class="ts-unverified-note">
+        ${noModelKnowledge
+          ? 'No evidence or model knowledge available yet. We could not verify this claim.'
+          : 'No evidence sources were found. This is a model-only assessment.'
+        }
+      </div>
+    ` : ''}
     
     ${result.hasDisagreement ? `
       <div class="ts-disagreement-warning">
@@ -467,10 +480,14 @@ function getVerdictEmoji(verdict) {
  */
 function getConfidenceClass(category) {
   switch (category?.toLowerCase()) {
+    case 'very-high':
     case 'high':
       return 'ts-confidence-high';
     case 'medium':
       return 'ts-confidence-medium';
+    case 'very-low':
+    case 'low':
+      return 'ts-confidence-low';
     default:
       return 'ts-confidence-low';
   }

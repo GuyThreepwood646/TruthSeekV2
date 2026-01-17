@@ -3217,7 +3217,7 @@ CONST CONFIDENCE_THRESHOLDS = {
   medium: 85
 }
 
-CONST NO_EVIDENCE_CAP = 85
+CONST UNVERIFIED_CAP = 85
 
 FUNCTION calculateConfidence(
   verdict: Verdict,
@@ -3271,7 +3271,7 @@ FUNCTION calculateConfidence(
     
     7. // === APPLY EVIDENCE CAP ===
        IF NOT hasVerifiedUrls:
-         score = Math.min(score, NO_EVIDENCE_CAP)
+         score = Math.min(score, UNVERIFIED_CAP)
     
     8. // === CATEGORIZE ===
        category = categorizeScore(score)

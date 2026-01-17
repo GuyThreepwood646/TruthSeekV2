@@ -3,6 +3,8 @@
  * Ensures AI responses are grounded in provided sources
  */
 
+import { isGoogleGroundingRedirect } from '../utils/url-resolver.js';
+
 /**
  * Validate that AI response is grounded in provided sources
  * @param {Object} response - AI verification response
@@ -14,12 +16,23 @@ export function validateGrounding(response, providedUrls) {
   
   // Extract cited URLs from response
   const citedUrls = extractCitedUrls(response);
+  const safeProvidedUrls = Array.isArray(providedUrls) ? providedUrls : [];
+  const hasProvidedUrls = safeProvidedUrls.length > 0;
+  
+  if (!hasProvidedUrls && citedUrls.length > 0) {
+    issues.push('URLs were cited but no evidence sources were provided');
+  }
   
   // Check each cited URL was in provided set
   for (const url of citedUrls) {
+    if (isGoogleGroundingRedirect(url)) {
+      issues.push(`Cited URL is a Google Grounding redirect: ${url}`);
+      continue;
+    }
+    
     // Normalize URLs for comparison (remove trailing slashes, fragments)
     const normalizedCited = normalizeUrl(url);
-    const isProvided = providedUrls.some(providedUrl => 
+    const isProvided = safeProvidedUrls.some(providedUrl => 
       normalizeUrl(providedUrl) === normalizedCited
     );
     

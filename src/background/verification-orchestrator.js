@@ -150,6 +150,7 @@ async function verifyFactWithAllAgents(fact, agents, tabId) {
         sources: processedSources,
         knowledgeCutoffMessage: recencyMessage,
         groundingIssues: groundingIssues,
+        noModelKnowledge: verificationResult.noModelKnowledge === true,
         tokensUsed: verificationResult.tokensUsed || 0,
         timestamp: verificationResult.timestamp || Date.now(),
         success: true,
