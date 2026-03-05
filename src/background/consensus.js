@@ -31,7 +31,7 @@ export function aggregateResults(agentResults) {
       needsReVerification: false,
       reasoning: fallbackReasoning,
       sources: [],
-      noModelKnowledge: true
+      hasModelKnowledge: false
     };
   }
   
@@ -50,7 +50,7 @@ export function aggregateResults(agentResults) {
       needsReVerification: false,
       reasoning: result.reasoning,
       sources: result.sources || [],
-      noModelKnowledge: result.noModelKnowledge === true
+      hasModelKnowledge: result.hasModelKnowledge !== false
     };
   }
   
@@ -95,6 +95,8 @@ export function aggregateResults(agentResults) {
   // Collect all unique sources
   const allSources = collectUniqueSources(eligibleResults);
   
+  const hasModelKnowledge = eligibleResults.every(result => result.hasModelKnowledge !== false);
+  
   return {
     factId: agentResults[0].factId,
     aggregateVerdict,
@@ -108,7 +110,7 @@ export function aggregateResults(agentResults) {
     suggestedSearchTerms: disagreementAnalysis.suggestedSearchTerms,
     reasoning,
     sources: allSources,
-    noModelKnowledge: false
+    hasModelKnowledge: hasModelKnowledge
   };
 }
 
@@ -119,7 +121,7 @@ export function aggregateResults(agentResults) {
  * @private
  */
 function isExcludedFromAggregate(result) {
-  return result?.noModelKnowledge === true &&
+  return result?.hasModelKnowledge === false &&
     result?.verdict === 'UNVERIFIED' &&
     Number(result?.confidence) === 0;
 }

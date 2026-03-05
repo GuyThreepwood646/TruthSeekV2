@@ -5,6 +5,11 @@
 
 import { CATEGORIES, VALID_CATEGORIES } from '../config/categories.js';
 
+import { validateCategoryAssignment } from './fact-validator.js';
+
+const CATEGORY_REASSIGN_THRESHOLD = 0.45;
+const CATEGORY_REASSIGN_DELTA = 0.15;
+
 /**
  * Validate and correct categories for all facts
  * @param {Fact[]} facts - Deduplicated facts
@@ -17,14 +22,26 @@ export function validateAndCorrectCategories(facts) {
   
   const validated = [];
   let correctionCount = 0;
+  let reassignmentCount = 0;
   
   for (const fact of facts) {
     if (VALID_CATEGORIES.includes(fact.category)) {
-      // Category is valid
-      validated.push(fact);
+      // Category is valid, but may need correction
+      const assessment = validateCategoryAssignment(fact);
+      if (assessment.suggestion && shouldReassignCategory(assessment)) {
+        const updated = {
+          ...fact,
+          category: assessment.suggestion
+        };
+        validated.push(updated);
+        reassignmentCount++;
+        console.log(`[CATEGORIZATION] Reassigned fact ${fact.id} to ${assessment.suggestion}: ${assessment.reason || 'heuristic mismatch'}`);
+      } else {
+        validated.push(fact);
+      }
     } else {
       // Invalid or missing category - attempt re-categorization
-      console.warn(`Invalid category "${fact.category}" for fact: ${fact.id}`);
+      console.warn(`[CATEGORIZATION] Invalid category "${fact.category}" for fact: ${fact.id}`);
       const corrected = recategorize(fact);
       validated.push(corrected);
       correctionCount++;
@@ -32,7 +49,11 @@ export function validateAndCorrectCategories(facts) {
   }
   
   if (correctionCount > 0) {
-    console.log(`Re-categorized ${correctionCount} facts with invalid categories`);
+    console.log(`[CATEGORIZATION] Re-categorized ${correctionCount} facts with invalid categories`);
+  }
+  
+  if (reassignmentCount > 0) {
+    console.log(`[CATEGORIZATION] Reassigned ${reassignmentCount} facts based on category validation`);
   }
   
   return validated;
@@ -58,7 +79,10 @@ function recategorize(fact) {
     fact.category = 'LEGAL_REGULATORY';
   }
   // MEDICAL_BIOLOGICAL - health/medical content
-  else if (containsAny(text, ['disease', 'treatment', 'symptom', 'patient', 'drug', 'medical', 'health', 'diagnosis', 'therapy', 'medication'])) {
+  else if (containsAny(text, [
+    'disease', 'treatment', 'symptom', 'patient', 'drug', 'medical', 'health', 'diagnosis', 'therapy', 'medication',
+    'abortion', 'miscarriage', 'pregnancy', 'reproductive', 'pharmaceutical'
+  ])) {
     fact.category = 'MEDICAL_BIOLOGICAL';
   }
   // SCIENTIFIC_TECHNICAL - research/technical content
@@ -86,7 +110,7 @@ function recategorize(fact) {
     fact.category = 'DEFINITIONAL_ATTRIBUTE';
   }
   
-  console.log(`Re-categorized fact ${fact.id} as ${fact.category}`);
+  console.log(`[CATEGORIZATION] Re-categorized fact ${fact.id} as ${fact.category}`);
   return fact;
 }
 
@@ -130,6 +154,29 @@ export function getCategoryStatistics(facts) {
  */
 export function isValidCategory(category) {
   return VALID_CATEGORIES.includes(category);
+}
+
+function shouldReassignCategory(assessment) {
+  if (!assessment || !assessment.suggestion) {
+    return false;
+  }
+  
+  let suggestionScore = 0;
+  let currentScore = 0;
+  
+  if (Number.isFinite(assessment.suggestionScore)) {
+    suggestionScore = assessment.suggestionScore;
+  }
+  
+  if (Number.isFinite(assessment.confidence)) {
+    currentScore = assessment.confidence;
+  }
+  
+  if (suggestionScore < CATEGORY_REASSIGN_THRESHOLD) {
+    return false;
+  }
+  
+  return (suggestionScore - currentScore) >= CATEGORY_REASSIGN_DELTA;
 }
 
 

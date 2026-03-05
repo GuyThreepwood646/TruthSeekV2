@@ -14,6 +14,7 @@ let progressState = {
   progress: 0,
   totalFacts: 0,
   processedFacts: 0,
+  currentFactIndex: 0,
   agentUpdates: []
 };
 
@@ -46,6 +47,7 @@ export function showProgress(options = {}) {
   progressState.progress = clampPercent(safeOptions.progress);
   progressState.totalFacts = safeOptions.totalFacts || 0;
   progressState.processedFacts = safeOptions.processedFacts || 0;
+  progressState.currentFactIndex = safeOptions.currentFactIndex || 0;
   progressState.agentUpdates = [];
   
   // Render initial state
@@ -82,6 +84,9 @@ export function updateProgress(updates = {}) {
   }
   if (safeUpdates.processedFacts !== undefined) {
     progressState.processedFacts = safeUpdates.processedFacts;
+  }
+  if (safeUpdates.currentFactIndex !== undefined) {
+    progressState.currentFactIndex = safeUpdates.currentFactIndex;
   }
   if (safeUpdates.agentUpdate) {
     // Add agent update to list (keep last 5)
@@ -139,12 +144,15 @@ function renderProgress() {
     return;
   }
   
-  const { currentStep, progress, totalFacts, processedFacts, agentUpdates } = progressState;
+  const { currentStep, progress, totalFacts, processedFacts, currentFactIndex, agentUpdates } = progressState;
   
   // Calculate percentage
-  const percentage = totalFacts > 0 
+  const factProgress = totalFacts > 0
     ? clampPercent((processedFacts / totalFacts) * 100)
-    : clampPercent(progress);
+    : 0;
+  const percentage = progress > 0
+    ? clampPercent(progress)
+    : factProgress;
   
   // Build HTML
   const html = `
@@ -180,7 +188,7 @@ function renderProgress() {
       
       <div class="truthseek-progress-stats">
         ${totalFacts > 0 
-          ? `<span>${processedFacts} / ${totalFacts} facts processed</span>`
+          ? `<span>Fact ${Math.min(currentFactIndex || processedFacts, totalFacts)} of ${totalFacts} verified</span>`
           : `<span>${percentage}%</span>`
         }
       </div>

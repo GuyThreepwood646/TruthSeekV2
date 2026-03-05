@@ -3,6 +3,8 @@
  * Prompts that enforce grounding in live web search results
  */
 
+import { sourceTiers } from '../../config/source-tiers.js';
+
 /**
  * Build verification prompt for AI models
  * @param {Object} context - Verification context
@@ -26,7 +28,9 @@ export function buildVerificationPrompt(context) {
     pageMetadata = null
   } = context;
   
+  const categoryRoleLine = getCategoryRoleLine(category);
   const system = `You are a fact verification specialist. Your ONLY job is to verify facts using the web search results provided.
+${categoryRoleLine ? `\nCATEGORY ROLE: ${categoryRoleLine}\n` : ''}
 
 CRITICAL RULES:
 1. You MUST rely on the provided web search sources. Do not verify before reviewing them.
@@ -104,7 +108,7 @@ Based ONLY on these sources, verify the fact. If no sources are listed, return U
  */
 function formatSources(sources) {
   if (!sources || sources.length === 0) {
-    return "No sources found.";
+    return 'No sources found.';
   }
   
   const formatted = sources.map((source, index) => {
@@ -153,6 +157,90 @@ function formatMetadata(metadata) {
   return lines.length > 0 ? lines.join('\n') : 'None provided.';
 }
 
+function getCategoryRoleLine(category) {
+  const roles = {
+    HISTORICAL_EVENT: 'Prioritize archival records, primary sources, and official historical registries.',
+    STATISTICAL_QUANTITATIVE: 'Prioritize official statistics, datasets, and methodology notes from authoritative agencies.',
+    DEFINITIONAL_ATTRIBUTE: 'Prioritize authoritative reference works, standards bodies, and official definitions.',
+    SCIENTIFIC_TECHNICAL: 'Prioritize peer-reviewed papers, standards, and primary technical documentation.',
+    MEDICAL_BIOLOGICAL: 'Prioritize clinical guidelines, regulatory labels, and peer-reviewed medical research.',
+    LEGAL_REGULATORY: 'Prioritize statutes, regulations, court opinions, and official legal repositories.',
+    GEOPOLITICAL_SOCIAL: 'Prioritize official government publications, international organizations, and policy reports.',
+    ATTRIBUTION_QUOTE: 'Prioritize primary sources: transcripts, official statements, and original recordings.',
+    CAUSAL_RELATIONAL: 'Prioritize studies with clear methodology and evidence of causality or correlation.'
+  };
+  
+  return roles[category] || '';
+}
+
+function getPreferredDomains(category, limit = 6) {
+  const domainSet = new Set();
+  const addDomain = (pattern, tier) => {
+    if (tier > 2) {
+      return;
+    }
+    const normalized = normalizePattern(pattern);
+    if (normalized) {
+      domainSet.add(normalized);
+    }
+  };
+  
+  if (category && sourceTiers.categoryOverrides?.[category]) {
+    for (const mapping of sourceTiers.categoryOverrides[category]) {
+      addDomain(mapping.pattern, mapping.tier);
+    }
+  }
+  
+  for (const mapping of sourceTiers.globalDefaults || []) {
+    addDomain(mapping.pattern, mapping.tier);
+  }
+  
+  return Array.from(domainSet).slice(0, limit);
+}
+
+function normalizePattern(pattern) {
+  if (!pattern || typeof pattern !== 'string') {
+    return '';
+  }
+  
+  if (pattern.startsWith('*.')) {
+    return `.${pattern.substring(2)}`;
+  }
+  
+  if (pattern.includes('*')) {
+    return '';
+  }
+  
+  return pattern;
+}
+
+function extractDomain(url) {
+  try {
+    return new URL(url).hostname;
+  } catch (error) {
+    return '';
+  }
+}
+
+function dedupeQueries(queries, limit = 4) {
+  const seen = new Set();
+  const results = [];
+  
+  for (const query of queries) {
+    const trimmed = query?.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    results.push(trimmed);
+    if (results.length >= limit) {
+      break;
+    }
+  }
+  
+  return results;
+}
+
 /**
  * Build search query for fact verification
  * @param {Fact} fact - Fact to verify
@@ -184,6 +272,120 @@ export function buildTierBiasedQuery(fact, direction = 'supporting') {
 }
 
 /**
+ * Build metadata-aware search queries
+ * @param {Fact} fact - Fact to verify
+ * @param {object|null} pageMetadata - Page metadata for context
+ * @param {string} direction - 'supporting' or 'refuting'
+ * @returns {string[]}
+ */
+export function buildMetadataQueries(fact, pageMetadata, direction = 'supporting') {
+  if (!pageMetadata || typeof pageMetadata !== 'object') {
+    return [];
+  }
+  
+  const baseQuery = buildSearchQuery(fact, direction);
+  const queries = [];
+  
+  if (pageMetadata.title) {
+    const title = String(pageMetadata.title).trim().slice(0, 160);
+    if (title) {
+      queries.push(`"${title}" ${baseQuery}`);
+    }
+  }
+  
+  if (pageMetadata.siteName) {
+    const siteName = String(pageMetadata.siteName).trim().slice(0, 80);
+    if (siteName) {
+      queries.push(`${baseQuery} ${siteName}`);
+    }
+  }
+  
+  if (pageMetadata.author) {
+    const author = String(pageMetadata.author).trim().slice(0, 80);
+    if (author) {
+      queries.push(`${baseQuery} "${author}"`);
+    }
+  }
+  
+  if (pageMetadata.section) {
+    const section = String(pageMetadata.section).trim().slice(0, 80);
+    if (section) {
+      queries.push(`${baseQuery} ${section}`);
+    }
+  }
+  
+  if (pageMetadata.canonicalUrl) {
+    const domain = extractDomain(pageMetadata.canonicalUrl);
+    if (domain) {
+      queries.push(`${baseQuery} site:${domain}`);
+    }
+  }
+  
+  return dedupeQueries(queries, 2);
+}
+
+/**
+ * Build category-term search queries
+ * @param {Fact} fact - Fact to verify
+ * @param {string} category - Fact category
+ * @param {string} direction - 'supporting' or 'refuting'
+ * @returns {string[]}
+ */
+export function buildCategoryQueries(fact, category, direction = 'supporting') {
+  const baseQuery = buildSearchQuery(fact, direction);
+  const templates = {
+    LEGAL_REGULATORY: ['lawsuit', 'injunction', 'court filing', 'complaint', 'docket', 'ruling', 'regulation'],
+    MEDICAL_BIOLOGICAL: ['clinical study', 'FDA label', 'safety', 'treatment', 'guideline'],
+    SCIENTIFIC_TECHNICAL: ['peer-reviewed', 'technical specification', 'research paper'],
+    STATISTICAL_QUANTITATIVE: ['statistics', 'report', 'dataset', 'survey'],
+    HISTORICAL_EVENT: ['archives', 'primary source', 'historical record'],
+    GEOPOLITICAL_SOCIAL: ['policy', 'official statement', 'government report'],
+    DEFINITIONAL_ATTRIBUTE: ['definition', 'encyclopedia', 'reference'],
+    ATTRIBUTION_QUOTE: ['transcript', 'press release', 'official statement'],
+    CAUSAL_RELATIONAL: ['study', 'analysis', 'evidence of']
+  };
+  
+  const terms = templates[category] || [];
+  const queries = terms.map(term => `${baseQuery} ${term}`);
+  return dedupeQueries(queries, 2);
+}
+
+/**
+ * Build domain-biased query using tiered source preferences
+ * @param {Fact} fact - Fact to verify
+ * @param {string} category - Fact category
+ * @param {string} direction - 'supporting' or 'refuting'
+ * @returns {string}
+ */
+export function buildDomainBiasedQuery(fact, category, direction = 'supporting') {
+  const baseQuery = buildSearchQuery(fact, direction);
+  const domains = getPreferredDomains(category, 6);
+  
+  if (domains.length === 0) {
+    return baseQuery;
+  }
+  
+  const siteFilters = domains.map(domain => `site:${domain}`).join(' OR ');
+  return `${baseQuery} (${siteFilters})`;
+}
+
+/**
+ * Build suggested search queries for grounded providers
+ * @param {Fact} fact - Fact to verify
+ * @param {string} category - Fact category
+ * @param {object|null} pageMetadata - Page metadata for context
+ * @returns {string[]}
+ */
+export function buildSuggestedSearchQueries(fact, category, pageMetadata) {
+  const baseQuery = buildSearchQuery(fact, 'supporting');
+  const domainQuery = buildDomainBiasedQuery(fact, category, 'supporting');
+  const metadataQueries = buildMetadataQueries(fact, pageMetadata, 'supporting');
+  const categoryQueries = buildCategoryQueries(fact, category, 'supporting');
+  
+  return dedupeQueries([baseQuery, domainQuery, ...metadataQueries, ...categoryQueries], 4);
+}
+
+/**
  * Build verification prompt for Google Gemini with grounding
  * This prompt accounts for the fact that Google Search grounding provides web access
  * but may not include text snippets in the API response
@@ -196,10 +398,18 @@ export function buildGroundedVerificationPrompt(context) {
     category,
     currentDate,
     modelCutoffDate,
-    pageMetadata = null
+    pageMetadata = null,
+    suggestedQueries = []
   } = context;
-  
+  const categoryRoleLine = getCategoryRoleLine(category);
   const system = `You are a fact verification specialist with access to Google Search.
+${categoryRoleLine ? `\nCATEGORY ROLE: ${categoryRoleLine}\n` : ''}
+
+SEARCH EXECUTION REQUIREMENTS:
+- You MUST generate and execute 2-4 web search queries using Google Search grounding
+- Searches must target both SUPPORTING and REFUTING evidence
+- After executing searches, you MUST include the URLs you found in your reasoning
+- Reference specific sources in your reasoning using phrases like "according to [URL]" or "as reported by [source]"
 
 CRITICAL RULES:
 1. You MUST perform a grounded web search before verifying the fact.
@@ -258,7 +468,13 @@ CATEGORY: ${category}
 PAGE METADATA (context only):
 ${formatMetadata(pageMetadata)}
 
-Use Google Search to find reliable sources that either support or refute this fact. Review the sources you find and provide your verdict with citations. If no evidence URLs are found, return UNVERIFIED with reasoning and no URLs. Respond with valid JSON only.`;
+${suggestedQueries.length > 0 ? `SUGGESTED SEARCH QUERIES:\n${suggestedQueries.map(query => `- ${query}`).join('\n')}\n\n` : ''}INSTRUCTIONS:
+1. FIRST: Use your Google Search tool to search for evidence about this fact
+2. Generate 2-4 search queries to find both supporting AND refuting evidence
+3. THEN: Review what you found and provide your verdict with citations
+4. If your search finds no relevant results, return UNVERIFIED with empty citedSources
+
+You have access to Google Search. Use it now to verify this fact. Respond with valid JSON only.`;
 
   return { system, user };
 }
@@ -274,15 +490,17 @@ Use Google Search to find reliable sources that either support or refute this fa
  */
 export function buildNoEvidenceFallbackPrompt(context) {
   const { fact, category, currentDate, modelCutoffDate } = context;
-  
+  const categoryRoleLine = getCategoryRoleLine(category);
   const system = `You are a fact verification specialist.
+${categoryRoleLine ? `\nCATEGORY ROLE: ${categoryRoleLine}\n` : ''}
 
 CRITICAL RULES:
 1. No web sources are available. Do NOT claim you searched or found evidence.
 2. Do NOT provide URLs or citations. Never invent or guess URLs.
 3. You MUST return verdict "UNVERIFIED" regardless of your opinion.
-4. If you have any general knowledge, provide a brief, user-friendly opinion.
-5. If you have no relevant knowledge, say so clearly and set hasModelKnowledge to false.
+4. If you have any relevant, specific knowledge, provide a brief, user-friendly explanation.
+5. If your reasoning is generic, vague, or non-informative, set hasModelKnowledge to false and confidence to 0.
+6. If you have no relevant knowledge, say so clearly, set hasModelKnowledge to false, and confidence to 0.
 
 CURRENT DATE: ${currentDate}
 YOUR KNOWLEDGE CUTOFF: ${modelCutoffDate}
@@ -290,9 +508,9 @@ YOUR KNOWLEDGE CUTOFF: ${modelCutoffDate}
 OUTPUT FORMAT (JSON):
 {
   "verdict": "UNVERIFIED",
-  "confidence": <0-70 based on your general knowledge only>,
+  "confidence": <0-70 based on your knowledge; use 0 if hasModelKnowledge is false>,
   "reasoning": "<brief, non-technical explanation or uncertainty>",
-  "hasModelKnowledge": <true if you have any relevant knowledge, else false>
+  "hasModelKnowledge": <true only if you provide specific, informative reasoning; false otherwise>
 }`;
   
   const user = `FACT TO VERIFY:

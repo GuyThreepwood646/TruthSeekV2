@@ -3,6 +3,13 @@
  * Runs before each test file
  */
 
+import { jest } from '@jest/globals';
+import { TextDecoder, TextEncoder } from 'util';
+
+globalThis.jest = jest;
+globalThis.TextEncoder = globalThis.TextEncoder || TextEncoder;
+globalThis.TextDecoder = globalThis.TextDecoder || TextDecoder;
+
 // Mock Chrome APIs globally
 global.chrome = {
   storage: {

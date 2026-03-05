@@ -50,12 +50,19 @@ export async function verifyAllFacts(facts, agents, tabId) {
     
     // Send progress update
     try {
+      const processedFacts = i + batch.length;
+      const totalFacts = facts.length;
+      const verificationProgress = totalFacts > 0
+        ? Math.round(50 + ((processedFacts / totalFacts) * 50))
+        : 50;
+
       await sendToTab(tabId, {
         type: MessageType.VERIFICATION_PROGRESS,
         payload: {
-          processedFacts: i + batch.length,
-          totalFacts: facts.length,
-          progress: Math.round(((i + batch.length) / facts.length) * 100)
+          processedFacts,
+          totalFacts,
+          currentFactIndex: processedFacts,
+          progress: verificationProgress
         }
       });
     } catch (error) {
@@ -103,8 +110,13 @@ async function verifyFactWithAllAgents(fact, agents, tabId) {
       let processedSources = verificationResult.sources || [];
       
       try {
+        const sourcesAlreadyValidated = processedSources.length > 0
+          && processedSources.every(source => source.validated === true);
+        
         // Validate URLs (filter out broken/irrelevant links)
-        processedSources = await filterValidSources(processedSources, fact.originalText);
+        if (!sourcesAlreadyValidated) {
+          processedSources = await filterValidSources(processedSources, fact.originalText, fact.id);
+        }
         
         // Assign credibility tiers
         processedSources = assignTiersToSources(processedSources, fact.category);
@@ -137,27 +149,44 @@ async function verifyFactWithAllAgents(fact, agents, tabId) {
       } catch (error) {
         console.warn('Error checking recency:', error);
       }
+
+      const hasValidatedSources = processedSources.length > 0;
+      let adjustedVerdict = verificationResult.verdict;
+      let adjustedConfidence = verificationResult.confidence;
+      let adjustedConfidenceCategory = verificationResult.confidenceCategory
+        || categorizeConfidence(verificationResult.confidence);
+      let adjustedReasoning = verificationResult.reasoning;
+      
+      if (!hasValidatedSources) {
+        adjustedVerdict = 'UNVERIFIED';
+        adjustedConfidence = 0;
+        adjustedConfidenceCategory = 'very-low';
+        adjustedReasoning = adjustedReasoning
+          ? `${adjustedReasoning} (No validated evidence URLs remained after source validation.)`
+          : 'No validated evidence URLs remained after source validation.';
+        groundingIssues.push('No validated evidence URLs remained after source validation');
+      }
       
       agentResults.push({
         agentId: agent.config.id,
         providerId: providerInfo.id,
         providerName: providerInfo.displayName,
         modelDisplayName: providerInfo.modelDisplayName,
-        verdict: verificationResult.verdict,
-        confidence: verificationResult.confidence,
-        confidenceCategory: verificationResult.confidenceCategory || categorizeConfidence(verificationResult.confidence),
-        reasoning: verificationResult.reasoning,
+        verdict: adjustedVerdict,
+        confidence: adjustedConfidence,
+        confidenceCategory: adjustedConfidenceCategory,
+        reasoning: adjustedReasoning,
         sources: processedSources,
         knowledgeCutoffMessage: recencyMessage,
         groundingIssues: groundingIssues,
-        noModelKnowledge: verificationResult.noModelKnowledge === true,
+        hasModelKnowledge: verificationResult.hasModelKnowledge !== false,
         tokensUsed: verificationResult.tokensUsed || 0,
         timestamp: verificationResult.timestamp || Date.now(),
         success: true,
         error: null
       });
       
-      console.log(`Agent ${providerInfo.modelDisplayName}: ${verificationResult.verdict} (confidence: ${verificationResult.confidence}, ${processedSources.length} sources)`);
+      console.log(`Agent ${providerInfo.modelDisplayName}: ${adjustedVerdict} (confidence: ${adjustedConfidence}, ${processedSources.length} sources)`);
       
     } else {
       // Failed verification (timeout or error)

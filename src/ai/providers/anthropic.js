@@ -7,7 +7,7 @@ import { AIProvider, AIProviderError, AIProviderException } from '../provider-in
 import { encrypt, decrypt } from '../../utils/crypto.js';
 import { getModelMetadata } from '../../config/model-metadata.js';
 import { parseExtractionResponse, buildAdaptiveExtractionPrompt, cleanJsonResponse } from '../prompts/extraction.js';
-import { buildVerificationPrompt, buildSearchQuery, buildTierBiasedQuery, buildNoEvidenceFallbackPrompt } from '../prompts/verification.js';
+import { buildVerificationPrompt, buildSearchQuery, buildTierBiasedQuery, buildNoEvidenceFallbackPrompt, buildMetadataQueries, buildCategoryQueries, buildDomainBiasedQuery } from '../prompts/verification.js';
 import { calculateConfidence, categorizeScore } from '../../background/confidence-scoring.js';
 import { assignSourceTier, sortSourcesByTierPreference } from '../../background/source-tiering.js';
 import { checkKnowledgeCutoff } from '../../background/verification-orchestrator.js';
@@ -21,6 +21,7 @@ const RATE_LIMIT_DELAY = 1000; // 1 second between requests
 const MAX_SOURCES_PER_QUERY = 3;
 const MAX_SOURCES_PER_DIRECTION = 3;
 const GENERAL_RANK_OFFSET = 10;
+const MAX_QUERY_VARIANTS = 4;
 
 export class AnthropicProvider extends AIProvider {
   constructor(config) {
@@ -170,6 +171,28 @@ export class AnthropicProvider extends AIProvider {
       const refutingQuery = buildSearchQuery(fact, 'refuting');
       const supportingTierQuery = buildTierBiasedQuery(fact, 'supporting');
       const refutingTierQuery = buildTierBiasedQuery(fact, 'refuting');
+      const supportingDomainQuery = buildDomainBiasedQuery(fact, category, 'supporting');
+      const refutingDomainQuery = buildDomainBiasedQuery(fact, category, 'refuting');
+      const supportingMetadataQueries = buildMetadataQueries(fact, fact.pageMetadata || null, 'supporting');
+      const refutingMetadataQueries = buildMetadataQueries(fact, fact.pageMetadata || null, 'refuting');
+      const supportingCategoryQueries = buildCategoryQueries(fact, category, 'supporting');
+      const refutingCategoryQueries = buildCategoryQueries(fact, category, 'refuting');
+      
+      const supportingQueries = this.buildQuerySet([
+        supportingTierQuery,
+        supportingDomainQuery,
+        supportingQuery,
+        ...supportingMetadataQueries,
+        ...supportingCategoryQueries
+      ]);
+      
+      const refutingQueries = this.buildQuerySet([
+        refutingTierQuery,
+        refutingDomainQuery,
+        refutingQuery,
+        ...refutingMetadataQueries,
+        ...refutingCategoryQueries
+      ]);
       
       // Define web search tool for Anthropic tool_use
       const tools = [{
@@ -190,10 +213,8 @@ export class AnthropicProvider extends AIProvider {
       // Perform web searches
       const sources = await this.performWebSearches(
         {
-          supportingQuery,
-          refutingQuery,
-          supportingTierQuery,
-          refutingTierQuery
+          supportingQueries,
+          refutingQueries
         },
         apiKey,
         tools,
@@ -202,8 +223,8 @@ export class AnthropicProvider extends AIProvider {
       
       let validatedSources = sources;
       try {
-        const supportingValidated = await filterValidSources(sources.supporting, fact.originalText);
-        const refutingValidated = await filterValidSources(sources.refuting, fact.originalText);
+        const supportingValidated = await filterValidSources(sources.supporting, fact.originalText, fact.id);
+        const refutingValidated = await filterValidSources(sources.refuting, fact.originalText, fact.id);
         validatedSources = { supporting: supportingValidated, refuting: refutingValidated };
       } catch (error) {
         console.warn('[Anthropic] Source validation failed, using raw sources:', error);
@@ -280,19 +301,20 @@ export class AnthropicProvider extends AIProvider {
       const hasVerifiedUrls = validatedSources.supporting.length > 0 || validatedSources.refuting.length > 0;
       if (!hasVerifiedUrls) {
         const fallbackResult = await this.runNoEvidenceFallback(fact, category, providerInfo, currentDate, apiKey);
+        const fallbackConfidence = fallbackResult.hasModelKnowledge ? fallbackResult.confidence : 0;
         
         return {
           factId: fact.id,
           agentId: this.config.id,
           verdict: 'UNVERIFIED',
-          confidence: fallbackResult.confidence,
-          confidenceCategory: categorizeScore(fallbackResult.confidence),
+          confidence: fallbackConfidence,
+          confidenceCategory: categorizeScore(fallbackConfidence),
           reasoning: fallbackResult.reasoning,
           sources: [],
           knowledgeCutoffMessage: null,
           tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
           timestamp: Date.now(),
-          noModelKnowledge: !fallbackResult.hasModelKnowledge
+          hasModelKnowledge: fallbackResult.hasModelKnowledge
         };
       }
       
@@ -349,23 +371,21 @@ export class AnthropicProvider extends AIProvider {
     try {
       // Note: Anthropic's tool_use simulates web search
       // In production, this would integrate with actual search APIs
-      const supportingTierResults = await this.callToolSearch(queries.supportingTierQuery, apiKey, tools);
-      const supportingResults = await this.callToolSearch(queries.supportingQuery, apiKey, tools);
-      const supportingSources = this.mergeSources(
-        this.parseSearchResults(supportingTierResults, true, 0, category),
-        this.parseSearchResults(supportingResults, true, GENERAL_RANK_OFFSET, category)
+      sources.supporting = await this.runSearchQueries(
+        queries.supportingQueries,
+        true,
+        apiKey,
+        tools,
+        category
       );
-      sources.supporting = sortSourcesByTierPreference(supportingSources)
-        .slice(0, MAX_SOURCES_PER_DIRECTION);
       
-      const refutingTierResults = await this.callToolSearch(queries.refutingTierQuery, apiKey, tools);
-      const refutingResults = await this.callToolSearch(queries.refutingQuery, apiKey, tools);
-      const refutingSources = this.mergeSources(
-        this.parseSearchResults(refutingTierResults, false, 0, category),
-        this.parseSearchResults(refutingResults, false, GENERAL_RANK_OFFSET, category)
+      sources.refuting = await this.runSearchQueries(
+        queries.refutingQueries,
+        false,
+        apiKey,
+        tools,
+        category
       );
-      sources.refuting = sortSourcesByTierPreference(refutingSources)
-        .slice(0, MAX_SOURCES_PER_DIRECTION);
     } catch (error) {
       console.warn('Web search failed:', error);
     }
@@ -402,6 +422,44 @@ export class AnthropicProvider extends AIProvider {
     }
     
     return response;
+  }
+
+  buildQuerySet(queries) {
+    const seen = new Set();
+    const results = [];
+    
+    for (const query of queries) {
+      const trimmed = query?.trim();
+      if (!trimmed || seen.has(trimmed)) {
+        continue;
+      }
+      seen.add(trimmed);
+      results.push(trimmed);
+      if (results.length >= MAX_QUERY_VARIANTS) {
+        break;
+      }
+    }
+    
+    return results;
+  }
+
+  async runSearchQueries(queries, isSupporting, apiKey, tools, category) {
+    let merged = [];
+    
+    for (let i = 0; i < queries.length; i++) {
+      const query = queries[i];
+      const response = await this.callToolSearch(query, apiKey, tools);
+      const parsed = this.parseSearchResults(
+        response,
+        isSupporting,
+        i * GENERAL_RANK_OFFSET,
+        category
+      );
+      merged = this.mergeSources(merged, parsed);
+    }
+    
+    return sortSourcesByTierPreference(merged)
+      .slice(0, MAX_SOURCES_PER_DIRECTION);
   }
 
   /**

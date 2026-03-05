@@ -42,8 +42,18 @@ export function validateGrounding(response, providedUrls) {
   }
   
   // Check reasoning references sources
+  // NOTE: If we have verified URLs, relax this check since grounding succeeded
+  const hasVerifiedUrls = providedUrls && providedUrls.length > 0;
+
   if (response.reasoning && !referencesSource(response.reasoning)) {
-    issues.push('Reasoning does not reference any sources');
+    if (hasVerifiedUrls) {
+      // Grounding succeeded (URLs found) but reasoning lacks keywords
+      // This is acceptable - log as info, not issue
+      console.log('[Grounding] URLs found but reasoning lacks source keywords - accepting as valid grounding');
+    } else {
+      // No URLs AND no source keywords = likely training data leakage
+      issues.push('Reasoning does not reference any sources');
+    }
   }
   
   // Check for training data leakage indicators

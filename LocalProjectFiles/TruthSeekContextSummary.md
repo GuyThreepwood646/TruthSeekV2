@@ -105,7 +105,7 @@ The `orchestrator.js:start(tabId)` function executes this pipeline:
 1. **Extract Page Content** - Content script extracts sentences with XPath and deterministic page metadata
 2. **Extract Facts (Parallel)** - All agents extract facts simultaneously (60s timeout)
 3. **Deduplicate** - Remove exact/semantic duplicates using agent quality ranking
-4. **Validate Categories** - Ensure categories match taxonomy, correct if needed
+4. **Validate Categories** - Ensure categories match taxonomy, correct invalid values, and reassign low-confidence categories using heuristic validation
 5. **Validate Facts** - Filter invalid, too short, XSS attempts, non-verifiable claims
 6. **Highlight Sentences** - Mark extracted sentences yellow (processing)
 7. **Verify Facts (Parallel)** - All agents verify each fact via web search (90s timeout, batched 5 at a time) using page metadata as context
@@ -188,7 +188,8 @@ class CustomProvider extends AIProvider {
   confidenceCategory: 'very-low' | 'low' | 'medium' | 'high' | 'very-high',
   reasoning: 'explanation',
   sources: [{ url, title, snippet, tier, isSupporting }],
-  knowledgeCutoffMessage: null | 'warning text'
+  knowledgeCutoffMessage: null | 'warning text',
+  hasModelKnowledge: boolean
 }
 ```
 
@@ -203,6 +204,7 @@ class CustomProvider extends AIProvider {
   agentResults: [...],
   hasDisagreement: boolean,
   disagreementNote: null | 'explanation',
+  hasModelKnowledge: boolean,
   reasoning: 'combined reasoning',
   sources: [...]
 }

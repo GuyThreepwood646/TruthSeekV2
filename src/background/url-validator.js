@@ -30,17 +30,21 @@ const REQUEST_TIMEOUT = 10000; // 10 seconds
  * Validate a URL
  * @param {string} url - URL to validate
  * @param {string} factText - Fact text for relevance checking
- * @returns {Promise<{valid: boolean, url: string, reason?: string}>}
+ * @param {string|null} factId - Optional fact ID for logging
+ * @param {object|null} source - Optional source metadata (tier, domain)
+ * @returns {Promise<{valid: boolean, url: string, reason?: string, readabilityHint?: string}>}
  */
-export async function validateUrl(url, factText) {
+export async function validateUrl(url, factText, factId = null, source = null) {
   try {
+    const factSuffix = factId ? ` (${factId})` : '';
+    
     // Resolve Google Grounding redirect URLs first
     let resolvedUrl = url;
     if (isGoogleGroundingRedirect(url)) {
-      console.log(`[URL_VALIDATOR] Resolving Google Grounding redirect: ${url.substring(0, 80)}...`);
-      resolvedUrl = await resolveGoogleGroundingUrl(url);
+      console.log(`[URL_VALIDATOR] Resolving Google Grounding redirect${factSuffix}: ${url.substring(0, 80)}...`);
+      resolvedUrl = await resolveGoogleGroundingUrl(url, { factId });
       if (resolvedUrl !== url) {
-        console.log(`[URL_VALIDATOR] Resolved to: ${resolvedUrl}`);
+        console.log(`[URL_VALIDATOR] Resolved${factSuffix} to: ${resolvedUrl}`);
       }
     }
     
@@ -65,6 +69,15 @@ export async function validateUrl(url, factText) {
       };
     }
     
+    // Reject generic search result pages
+    if (isSearchResultUrl(resolvedUrl)) {
+      return {
+        valid: false,
+        url: resolvedUrl,
+        reason: 'Search results pages are not valid evidence'
+      };
+    }
+
     // Fetch the URL with timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
@@ -129,11 +142,18 @@ export async function validateUrl(url, factText) {
     
     // Only validate HTML pages
     if (!contentType.includes('text/html')) {
-      // Non-HTML content (PDF, images, etc.) - accept but note
+      const nonHtmlDecision = evaluateNonHtmlAcceptance(finalUrl, factText, source);
+      if (!nonHtmlDecision.valid) {
+        return {
+          valid: false,
+          url: finalUrl,
+          reason: nonHtmlDecision.reason
+        };
+      }
       return {
         valid: true,
         url: finalUrl,
-        reason: 'Non-HTML content'
+        reason: nonHtmlDecision.reason
       };
     }
     
@@ -149,19 +169,21 @@ export async function validateUrl(url, factText) {
       };
     }
     
-    // Check content relevance
-    if (!isContentRelevant(html, factText)) {
+    // Check content relevance with readability gating
+    const relevance = evaluateHtmlRelevance(html, finalUrl, factText, source);
+    if (!relevance.valid) {
       return {
         valid: false,
         url: finalUrl,
-        reason: 'Content not relevant to fact'
+        reason: relevance.reason
       };
     }
     
     // All checks passed
     return {
       valid: true,
-      url: finalUrl
+      url: finalUrl,
+      ...(relevance.readabilityHint ? { readabilityHint: relevance.readabilityHint } : {})
     };
     
   } catch (error) {
@@ -233,6 +255,197 @@ function isContentRelevant(html, factText) {
 }
 
 /**
+ * Detect if URL is a generic search results page
+ * @param {string} url - URL to check
+ * @returns {boolean}
+ * @private
+ */
+function isSearchResultUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    if (host.includes('google.') && path.startsWith('/search')) return true;
+    if (host.includes('bing.com') && path.startsWith('/search')) return true;
+    if (host.includes('search.yahoo.com') && path.startsWith('/search')) return true;
+    if (host.includes('duckduckgo.com') && path.startsWith('/')) {
+      return parsed.searchParams.has('q');
+    }
+    return false;
+  } catch (error) {
+    return false;
+  }
+}
+
+function evaluateNonHtmlAcceptance(url, factText, source) {
+  const tier = Number.isFinite(source?.tier) ? source.tier : null;
+  const strongKeywords = getStrongKeywords(factText);
+  const pathMatchCount = countKeywordMatchesInUrl(url, strongKeywords);
+  const hasStrongPathMatch = pathMatchCount >= 1;
+  
+  // Require higher-tier domains or strong path matches for non-HTML content
+  if (tier !== null && tier <= 2 && hasStrongPathMatch) {
+    return { valid: true, reason: 'Non-HTML content (high-tier domain)' };
+  }
+  
+  if (tier !== null && tier <= 2 && strongKeywords.length > 0 && pathMatchCount >= 1) {
+    return { valid: true, reason: 'Non-HTML content (keyword match)' };
+  }
+  
+  if (tier !== null && tier <= 3 && hasStrongPathMatch) {
+    return { valid: true, reason: 'Non-HTML content (reputable domain)' };
+  }
+  
+  return {
+    valid: false,
+    reason: 'Non-HTML content without strong relevance signals'
+  };
+}
+
+function evaluateHtmlRelevance(html, url, factText, source) {
+  const tier = Number.isFinite(source?.tier) ? source.tier : null;
+  const { title, ogTitle, h1 } = extractTitles(html);
+  const titleCandidate = (title || ogTitle || h1 || '').trim();
+  const text = extractText(html);
+  const wordCount = countWords(text);
+  
+  if (hasAccessGates(titleCandidate, text)) {
+    return {
+      valid: false,
+      reason: 'Access gate or login required'
+    };
+  }
+  
+  const strongKeywords = getStrongKeywords(factText);
+  const matchCount = countKeywordMatches(text, strongKeywords);
+  const yearMatch = hasYearMatch(factText, text);
+  const urlPathMatches = countKeywordMatchesInUrl(url, strongKeywords);
+  
+  // For thin/JS-rendered pages, rely on title and URL path signals
+  if (wordCount < 120) {
+    if (tier !== null && tier <= 2 && titleCandidate.length >= 10 && urlPathMatches >= 1) {
+      return {
+        valid: true,
+        reason: 'Thin HTML content with strong signals',
+        readabilityHint: 'needs-user-open'
+      };
+    }
+    return {
+      valid: false,
+      reason: 'Content too thin to verify relevance'
+    };
+  }
+  
+  if (titleCandidate.length < 6) {
+    return {
+      valid: false,
+      reason: 'Missing readable title'
+    };
+  }
+  
+  if (matchCount >= 2) {
+    return { valid: true };
+  }
+  
+  if (matchCount >= 1 && yearMatch) {
+    return { valid: true };
+  }
+  
+  if (tier !== null && tier <= 2 && urlPathMatches >= 2) {
+    return { valid: true };
+  }
+  
+  return {
+    valid: false,
+    reason: 'Content not relevant to fact'
+  };
+}
+
+function extractTitles(html) {
+  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  const ogTitleMatch = html.match(/property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
+  const h1Match = html.match(/<h1[^>]*>([^<]*)<\/h1>/i);
+  
+  return {
+    title: titleMatch ? titleMatch[1].trim() : '',
+    ogTitle: ogTitleMatch ? ogTitleMatch[1].trim() : '',
+    h1: h1Match ? h1Match[1].trim() : ''
+  };
+}
+
+function countWords(text) {
+  if (!text) return 0;
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function hasAccessGates(titleText, bodyText) {
+  const combined = `${titleText}\n${bodyText}`.toLowerCase();
+  const gates = [
+    'sign in',
+    'log in',
+    'subscribe',
+    'subscription',
+    'access denied',
+    'enable cookies',
+    'please enable javascript',
+    'verify you are human',
+    'captcha',
+    'paywall'
+  ];
+  return gates.some(gate => combined.includes(gate));
+}
+
+function getStrongKeywords(factText) {
+  if (!factText || typeof factText !== 'string') {
+    return [];
+  }
+  const stopwords = new Set([
+    'the','and','for','with','this','that','from','have','been','were','was','are',
+    'about','into','onto','over','under','between','after','before','during','than',
+    'then','they','them','their','there','what','when','where','which','while','who',
+    'whom','why','will','would','could','should','may','might','can','cannot','not',
+    'but','also','such','some','more','most','other','its','it','is','as','of','to',
+    'in','on','by','at','an','a'
+  ]);
+  return factText
+    .replace(/[^a-zA-Z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .map(token => token.trim())
+    .filter(token => token.length >= 4)
+    .filter(token => !stopwords.has(token.toLowerCase()));
+}
+
+function countKeywordMatches(text, keywords) {
+  if (!text || !keywords || keywords.length === 0) {
+    return 0;
+  }
+  const lowered = text.toLowerCase();
+  return keywords.reduce((count, keyword) => {
+    return count + (lowered.includes(keyword.toLowerCase()) ? 1 : 0);
+  }, 0);
+}
+
+function hasYearMatch(factText, contentText) {
+  const factYears = (factText.match(/\b(19|20)\d{2}\b/g) || []);
+  if (factYears.length === 0) {
+    return false;
+  }
+  return factYears.some(year => contentText.includes(year));
+}
+
+function countKeywordMatchesInUrl(url, keywords) {
+  try {
+    const parsed = new URL(url);
+    const path = decodeURIComponent(parsed.pathname + parsed.search).toLowerCase();
+    return keywords.reduce((count, keyword) => {
+      return count + (path.includes(keyword.toLowerCase()) ? 1 : 0);
+    }, 0);
+  } catch (error) {
+    return 0;
+  }
+}
+
+/**
  * Extract text from HTML
  * @param {string} html - HTML content
  * @returns {string} Extracted text
@@ -283,9 +496,12 @@ function countRedirects(originalUrl, finalUrl) {
  * @returns {Promise<Array<{url: string, valid: boolean, reason?: string}>>}
  */
 export async function validateUrls(urlsToValidate) {
-  const promises = urlsToValidate.map(({ url, factText }) => 
-    validateUrl(url, factText)
-  );
+  const promises = urlsToValidate.map((item) => {
+    if (!item) {
+      return validateUrl('', '', null, null);
+    }
+    return validateUrl(item.url, item.factText, item.factId || null, item.source || null);
+  });
   
   return await Promise.all(promises);
 }
@@ -294,9 +510,10 @@ export async function validateUrls(urlsToValidate) {
  * Filter sources to only valid URLs
  * @param {Source[]} sources - Sources with URLs
  * @param {string} factText - Fact text for relevance
+ * @param {string|null} factId - Optional fact ID for logging
  * @returns {Promise<Source[]>} Validated sources
  */
-export async function filterValidSources(sources, factText) {
+export async function filterValidSources(sources, factText, factId = null) {
   if (!sources || sources.length === 0) {
     return [];
   }
@@ -304,17 +521,19 @@ export async function filterValidSources(sources, factText) {
   const validatedSources = [];
   
   for (const source of sources) {
-    const validation = await validateUrl(source.url, factText);
+    const validation = await validateUrl(source.url, factText, factId, source);
     
     if (validation.valid) {
       validatedSources.push({
         ...source,
         url: validation.url, // Use final URL after redirects
         validated: true,
-        validatedAt: Date.now()
+        validatedAt: Date.now(),
+        ...(validation.readabilityHint ? { readabilityHint: validation.readabilityHint } : {})
       });
     } else {
-      console.log(`Rejected URL ${source.url}: ${validation.reason}`);
+      const factSuffix = factId ? ` (${factId})` : '';
+      console.log(`Rejected URL${factSuffix} ${source.url}: ${validation.reason}`);
     }
   }
   

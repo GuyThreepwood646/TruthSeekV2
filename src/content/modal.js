@@ -157,7 +157,7 @@ function renderFact(result) {
   const hasSources = Array.isArray(result.sources) && result.sources.length > 0;
   const isUnverified = (result.aggregateVerdict || 'UNVERIFIED').toUpperCase() === 'UNVERIFIED';
   const showFallbackNote = isUnverified && !hasSources;
-  const noModelKnowledge = result.noModelKnowledge === true;
+  const hasModelKnowledge = result.hasModelKnowledge !== false;
   
   // Determine verdict class
   const verdictClass = `ts-verdict-${(result.aggregateVerdict || 'unverified').toLowerCase()}`;
@@ -187,7 +187,7 @@ function renderFact(result) {
     
     ${showFallbackNote ? `
       <div class="ts-unverified-note">
-        ${noModelKnowledge
+        ${!hasModelKnowledge
           ? 'No evidence or model knowledge available yet. We could not verify this claim.'
           : 'No evidence sources were found. This is a model-only assessment.'
         }

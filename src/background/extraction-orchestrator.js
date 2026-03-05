@@ -77,13 +77,22 @@ export async function extractFromAllAgents(content, agents, tabId) {
 
       // Send progress update to content script (silent mode - tab may be closed)
       try {
+        const completedAgents = i + 1;
+        const totalAgents = agents.length;
+        const extractionProgress = totalAgents > 0
+          ? Math.round((completedAgents / totalAgents) * 50)
+          : 0;
+
         await sendToTab(tabId, {
           type: MessageType.EXTRACTION_PROGRESS,
           payload: {
             agentId: agent.config.id,
             agentName: providerInfo.modelDisplayName,
             factsCount: facts.length,
-            status: 'complete'
+            status: 'complete',
+            completedAgents,
+            totalAgents,
+            progress: extractionProgress
           },
           timestamp: Date.now()
         }, { silent: true });
@@ -111,6 +120,12 @@ export async function extractFromAllAgents(content, agents, tabId) {
 
       // Send failure update to content script (silent mode - tab may be closed)
       try {
+        const completedAgents = i + 1;
+        const totalAgents = agents.length;
+        const extractionProgress = totalAgents > 0
+          ? Math.round((completedAgents / totalAgents) * 50)
+          : 0;
+
         await sendToTab(tabId, {
           type: MessageType.EXTRACTION_PROGRESS,
           payload: {
@@ -118,7 +133,10 @@ export async function extractFromAllAgents(content, agents, tabId) {
             agentName: providerInfo.modelDisplayName,
             factsCount: 0,
             status: 'failed',
-            error: error
+            error: error,
+            completedAgents,
+            totalAgents,
+            progress: extractionProgress
           },
           timestamp: Date.now()
         }, { silent: true });

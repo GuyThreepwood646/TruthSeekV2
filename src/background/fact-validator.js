@@ -337,6 +337,18 @@ export function validateCategoryAssignment(fact) {
   
   const text = (fact.searchableText || fact.originalText || '').toLowerCase();
   
+  const categoryWeights = {
+    DEFINITIONAL_ATTRIBUTE: 0.85,
+    MEDICAL_BIOLOGICAL: 1.15,
+    LEGAL_REGULATORY: 1.1,
+    SCIENTIFIC_TECHNICAL: 1.1,
+    STATISTICAL_QUANTITATIVE: 1.05,
+    HISTORICAL_EVENT: 1.05,
+    GEOPOLITICAL_SOCIAL: 1.05,
+    ATTRIBUTION_QUOTE: 1.05,
+    CAUSAL_RELATIONAL: 1.05
+  };
+  
   // Heuristic patterns for each category
   const categoryPatterns = {
     HISTORICAL_EVENT: [
@@ -362,7 +374,8 @@ export function validateCategoryAssignment(fact) {
     MEDICAL_BIOLOGICAL: [
       /\b(disease|symptom|treatment|diagnosis|medication|drug|therapy)\b/i,
       /\b(patient|clinical|medical|health|healthcare)\b/i,
-      /\b(virus|bacteria|infection|immune|genetic)\b/i
+      /\b(virus|bacteria|infection|immune|genetic)\b/i,
+      /\b(abortion|miscarriage|pregnancy|reproductive|contraception|obstetric|gynecolog)\b/i
     ],
     LEGAL_REGULATORY: [
       /\b(law|regulation|statute|code|act|amendment|ruling|court)\b/i,
@@ -396,7 +409,8 @@ export function validateCategoryAssignment(fact) {
   }
   
   // Calculate confidence based on pattern matches
-  const confidence = patterns.length > 0 ? matchCount / patterns.length : 0.5;
+  const baseConfidence = patterns.length > 0 ? matchCount / patterns.length : 0.5;
+  const confidence = applyCategoryWeight(baseConfidence, fact.category, categoryWeights);
   
   // Check if another category might be a better fit
   let bestAlternative = null;
@@ -412,7 +426,8 @@ export function validateCategoryAssignment(fact) {
       }
     }
     
-    const altScore = catPatterns.length > 0 ? altMatchCount / catPatterns.length : 0;
+    const altBaseScore = catPatterns.length > 0 ? altMatchCount / catPatterns.length : 0;
+    const altScore = applyCategoryWeight(altBaseScore, category, categoryWeights);
     
     if (altScore > bestAlternativeScore) {
       bestAlternativeScore = altScore;
@@ -424,10 +439,17 @@ export function validateCategoryAssignment(fact) {
     isValid: confidence >= 0.3 || !bestAlternative,
     confidence,
     suggestion: bestAlternative,
+    suggestionScore: bestAlternativeScore,
     reason: bestAlternative 
       ? `Text patterns suggest ${bestAlternative} (confidence: ${bestAlternativeScore.toFixed(2)}) over ${fact.category} (confidence: ${confidence.toFixed(2)})`
       : null
   };
+}
+
+function applyCategoryWeight(score, category, weights) {
+  const weight = Number.isFinite(weights?.[category]) ? weights[category] : 1;
+  const weighted = score * weight;
+  return weighted > 1 ? 1 : weighted;
 }
 
 /**

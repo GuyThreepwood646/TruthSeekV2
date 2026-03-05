@@ -33,7 +33,9 @@ RULES:
 7. Avoid redundant facts that restate the same claim in different words; keep the most complete version
 8. If a sentence uses vague references (e.g., "the restrictions", "the decision", "it"),
    use the immediately preceding sentence(s) to make the subject explicit in searchableText
-9. For each fact, provide:
+9. When categories are ambiguous, prefer specialized categories over DEFINITIONAL_ATTRIBUTE
+   (e.g., medications, treatments, diseases, or reproductive health should be MEDICAL_BIOLOGICAL)
+10. For each fact, provide:
    - originalText: the exact text from the source
    - searchableText: rephrased as a clear, search-friendly statement with explicit subject
    - category: one of the defined categories
@@ -197,17 +199,25 @@ export function buildAdaptiveExtractionPrompt(content, categories = VALID_CATEGO
  */
 export function buildSimplifiedExtractionPrompt(content, categories = VALID_CATEGORIES) {
   const categoryList = categories.join(', ');
-  
+
   const system = `You are a fact extraction specialist. Extract ONLY objectively verifiable facts from text.
 
 Rules:
+- CRITICAL: If a sentence contains multiple discrete facts, output multiple fact objects
+- CRITICAL: Split appositive/descriptive clauses (e.g., "X, a type of Y, ...") into separate facts when they state distinct claims
 - Extract explicit and implicit facts
-- If a sentence contains multiple discrete facts, output multiple fact objects
-- Split appositive/descriptive clauses into separate facts when they state distinct claims
 - Avoid redundant facts that restate the same claim in different words
 - Keep the most complete/descriptive version when choosing between near-duplicates
 - Exclude opinions, predictions, subjective claims
+- Prefer specialized categories over DEFINITIONAL_ATTRIBUTE when ambiguity exists
 - Output JSON: {"facts": [{"originalText": "...", "searchableText": "...", "category": "...", "sentenceId": "..."}]}
+
+Example - Multiple facts in one sentence:
+Input: [s-0001] "The FDA restricted mifepristone, a medication for abortions."
+Output: {"facts": [
+  {"originalText": "The FDA restricted mifepristone", "searchableText": "FDA restricted mifepristone", "category": "LEGAL_REGULATORY", "sentenceId": "s-0001"},
+  {"originalText": "mifepristone is a medication for abortions", "searchableText": "mifepristone medication abortions", "category": "MEDICAL_BIOLOGICAL", "sentenceId": "s-0001"}
+]}
 
 Categories: ${categoryList}
 

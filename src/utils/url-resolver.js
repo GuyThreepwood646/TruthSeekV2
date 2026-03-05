@@ -24,11 +24,13 @@ export function isGoogleGroundingRedirect(url) {
  * @param {string} redirectUrl - Google Grounding redirect URL
  * @param {object} options - Resolution options
  * @param {boolean} options.useCache - Whether to use cached results (default: true)
- * @param {number} options.timeout - Request timeout in ms (default: 5000)
+ * @param {number} options.timeout - Request timeout in ms (default: 8000)
+ * @param {string|null} options.factId - Optional fact ID for logging
  * @returns {Promise<string|null>} Resolved URL or null if resolution fails
  */
 export async function resolveGoogleGroundingUrl(redirectUrl, options = {}) {
-  const { useCache = true, timeout = 5000 } = options;
+  const { useCache = true, timeout = 5000, factId = null } = options;  // Reduced from 8s to 5s
+  const factSuffix = factId ? ` (${factId})` : '';
   
   if (!isGoogleGroundingRedirect(redirectUrl)) {
     // Not a redirect URL, return as-is
@@ -41,7 +43,7 @@ export async function resolveGoogleGroundingUrl(redirectUrl, options = {}) {
     if (cached) {
       const age = Date.now() - cached.timestamp;
       if (age < CACHE_TTL) {
-        console.log(`[URL_RESOLVER] Using cached URL for ${redirectUrl.substring(0, 50)}...`);
+        console.log(`[URL_RESOLVER] Using cached URL${factSuffix} for ${redirectUrl.substring(0, 50)}...`);
         return cached.resolvedUrl;
       } else {
         // Cache expired, remove it
@@ -51,7 +53,7 @@ export async function resolveGoogleGroundingUrl(redirectUrl, options = {}) {
   }
   
   try {
-    console.log(`[URL_RESOLVER] Resolving redirect URL: ${redirectUrl.substring(0, 80)}...`);
+    console.log(`[URL_RESOLVER] Resolving redirect URL${factSuffix}: ${redirectUrl.substring(0, 80)}...`);
     
     // Create AbortController for timeout
     const controller = new AbortController();
@@ -81,22 +83,22 @@ export async function resolveGoogleGroundingUrl(redirectUrl, options = {}) {
             timestamp: Date.now()
           });
         }
-        console.log(`[URL_RESOLVER] Resolved to: ${resolvedUrl}`);
+        console.log(`[URL_RESOLVER] Resolved${factSuffix} to: ${resolvedUrl}`);
         return resolvedUrl;
       }
       
       // If HEAD didn't work or returned same URL, try GET
-      console.log(`[URL_RESOLVER] HEAD request didn't resolve, trying GET...`);
+      console.log(`[URL_RESOLVER] HEAD request didn't resolve${factSuffix}, trying GET...`);
       
     } catch (headError) {
       clearTimeout(timeoutId);
       
       // If HEAD fails (CORS, method not allowed, etc.), try GET
       if (headError.name === 'AbortError') {
-        throw new Error('Request timeout');
+        console.warn(`[URL_RESOLVER] HEAD request timed out${factSuffix}, trying GET...`);
+      } else {
+        console.log(`[URL_RESOLVER] HEAD request failed${factSuffix}, trying GET: ${headError.message}`);
       }
-      
-      console.log(`[URL_RESOLVER] HEAD request failed, trying GET: ${headError.message}`);
     }
     
     // Try GET request as fallback
@@ -124,23 +126,23 @@ export async function resolveGoogleGroundingUrl(redirectUrl, options = {}) {
             timestamp: Date.now()
           });
         }
-        console.log(`[URL_RESOLVER] Resolved to (via GET): ${resolvedUrl}`);
+        console.log(`[URL_RESOLVER] Resolved${factSuffix} to (via GET): ${resolvedUrl}`);
         return resolvedUrl;
       }
       
       // If we still got the same URL, it might not be a redirect or it's blocked
-      console.warn(`[URL_RESOLVER] Could not resolve redirect, URL unchanged: ${redirectUrl.substring(0, 80)}...`);
+      console.warn(`[URL_RESOLVER] Could not resolve redirect${factSuffix}, URL unchanged: ${redirectUrl.substring(0, 80)}...`);
       return redirectUrl; // Return original if we can't resolve
       
     } catch (getError) {
       clearTimeout(getTimeoutId);
       
       if (getError.name === 'AbortError') {
-        console.warn(`[URL_RESOLVER] Request timeout for: ${redirectUrl.substring(0, 80)}...`);
+        console.warn(`[URL_RESOLVER] Request timeout${factSuffix} for: ${redirectUrl.substring(0, 80)}...`);
       } else if (getError.message.includes('CORS') || getError.message.includes('Failed to fetch')) {
-        console.warn(`[URL_RESOLVER] CORS error, cannot resolve: ${redirectUrl.substring(0, 80)}...`);
+        console.warn(`[URL_RESOLVER] CORS error${factSuffix}, cannot resolve: ${redirectUrl.substring(0, 80)}...`);
       } else {
-        console.warn(`[URL_RESOLVER] Error resolving URL: ${getError.message}`);
+        console.warn(`[URL_RESOLVER] Error resolving URL${factSuffix}: ${getError.message}`);
       }
       
       // Return original URL if resolution fails
@@ -148,7 +150,7 @@ export async function resolveGoogleGroundingUrl(redirectUrl, options = {}) {
     }
     
   } catch (error) {
-    console.error(`[URL_RESOLVER] Unexpected error resolving URL:`, error);
+    console.error(`[URL_RESOLVER] Unexpected error resolving URL${factSuffix}:`, error);
     return redirectUrl; // Return original on any error
   }
 }
@@ -161,7 +163,7 @@ export async function resolveGoogleGroundingUrl(redirectUrl, options = {}) {
  * @returns {Promise<string[]>} Array of resolved URLs (same order as input)
  */
 export async function resolveUrlsBatch(urls, options = {}) {
-  const { batchSize = 5 } = options;
+  const { batchSize = 8 } = options;  // Increased from 5 to 8 for faster parallel processing
   const resolved = [];
   
   // Process in batches to avoid overwhelming the network

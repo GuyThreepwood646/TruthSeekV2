@@ -16,7 +16,7 @@ export const CATEGORIES = {
   
   DEFINITIONAL_ATTRIBUTE: {
     name: 'DEFINITIONAL_ATTRIBUTE',
-    description: 'Factual attributes or properties of entities (location, composition, characteristics, classifications)'
+    description: 'General attributes or properties of entities when no specialized domain applies (location, composition, characteristics)'
   },
   
   SCIENTIFIC_TECHNICAL: {
@@ -26,7 +26,7 @@ export const CATEGORIES = {
   
   MEDICAL_BIOLOGICAL: {
     name: 'MEDICAL_BIOLOGICAL',
-    description: 'Health-related facts, biological processes, medical information, diseases, treatments'
+    description: 'Health-related facts, medical information, drugs, treatments, diseases, reproductive health'
   },
   
   LEGAL_REGULATORY: {

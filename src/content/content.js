@@ -90,6 +90,19 @@ registerHandler(MessageType.UPDATE_PROGRESS, async (payload) => {
   return { success: true };
 });
 
+registerHandler(MessageType.EXTRACTION_PROGRESS, async (payload) => {
+  updateProgress({
+    agentUpdate: payload,
+    progress: payload?.progress
+  });
+  return { success: true };
+});
+
+registerHandler(MessageType.VERIFICATION_PROGRESS, async (payload) => {
+  updateProgress(payload);
+  return { success: true };
+});
+
 registerHandler(MessageType.SHOW_RESULTS, async (payload) => {
   const summary = payload?.summary || {};
   showResults(summary);
